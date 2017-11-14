@@ -309,8 +309,6 @@ class VIMCOEstimator(ImportanceWeightedMixin):
 
         self.num_steps_learning_signal = learning_signal
         if self.baseline is not None:
-            print 'learn signal', self.num_steps_learning_signal
-            print 'baseline', self.baseline
             self.num_steps_learning_signal -= self.baseline
 
         axes = range(len(self.num_steps_learning_signal.get_shape()))

@@ -2,6 +2,7 @@ import numpy as  np
 import sonnet as snt
 import tensorflow as tf
 from tensorflow.contrib.distributions import Bernoulli, NormalWithSoftplusScale
+from tensorflow.python.util import nest
 
 from modules import SpatialTransformer, ParametrisedGaussian
 
@@ -59,8 +60,8 @@ class AIRCell(snt.RNNCore):
             np.prod(self._img_size),  # image
             self._n_what,  # what
             self._n_transform_param,  # where
-            self._transition.state_size,  # hidden state of the rnn
             1,  # presence
+            self._transition.state_size,  # hidden state of the rnn
         ]
 
     @property
@@ -91,19 +92,22 @@ class AIRCell(snt.RNNCore):
 
         flat_img = tf.reshape(img, (batch_size, self._n_pix))
         init_presence = tf.ones((batch_size, 1), dtype=tf.float32)
-        return [flat_img, what_code, where_code, hidden_state, init_presence]
+        return [flat_img, what_code, where_code, init_presence, hidden_state]
 
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
-        img_flat, what_code, where_code, hidden_state, presence = state
+        what_tm1, where_tm1, presence_tm1 = inpt
+        img_flat, what_code, where_code, presence, hidden_state = state
 
         img_inpt = img_flat
         img = tf.reshape(img_inpt, (-1,) + tuple(self._img_size))
 
         inpt_encoding = self._input_encoder(img)
         with tf.variable_scope('rnn_inpt'):
-            hidden_output, hidden_state = self._transition(inpt_encoding, hidden_state)
+            transition_inpt = inpt_encoding
+            # transition_inpt = tf.concat((inpt_encoding, what_code, where_code, presence), -1)
+            hidden_output, hidden_state = self._transition(transition_inpt, hidden_state)
 
         where_param = self._transform_estimator(hidden_output)
         where_distrib = NormalWithSoftplusScale(*where_param,
@@ -120,7 +124,6 @@ class AIRCell(snt.RNNCore):
             if self._sample_presence:
                 presence_distrib = Bernoulli(probs=presence_prob, dtype=tf.float32,
                                              validate_args=self._debug, allow_nan_stats=not self._debug)
-
                 new_presence = presence_distrib.sample()
                 presence *= new_presence
 
@@ -134,5 +137,94 @@ class AIRCell(snt.RNNCore):
 
         output = [what_code, what_loc, what_scale, where_code, where_loc, where_scale,
                   presence_prob, presence]
-        state = [img_flat, what_code, where_code, hidden_state, presence]
+        state = [img_flat, what_code, where_code, presence, hidden_state]
         return output, state
+
+
+class SeqAIRCell(snt.RNNCore):
+
+    def __init__(self, n_steps, air_cell):
+        super(SeqAIRCell, self).__init__(self.__class__.__name__)
+        self._n_steps = n_steps
+        self._cell = air_cell
+
+    @property
+    def state_size(self):
+        return [
+            [   # from previous timestep
+                self._n_steps * self._cell._n_what,  # what
+                self._n_steps * self._cell._n_transform_param,  # where
+                self._n_steps * 1,  # presence
+            ],
+            self._cell.state_size[1:]
+            # self._cell._n_what,  # what
+            # self._cell._n_transform_param,  # where
+            # 1,  # presence
+            # self._cell._transition.state_size,  # hidden state of the rnn
+        ]
+
+    @property
+    def output_size(self):
+        os = self._cell.output_size
+        os = [self._n_steps * o for o in os]
+        return os
+        # return [
+        #     self._n_steps * self._n_what,  # what code
+        #     self._n_steps * self._n_what,  # what loc
+        #     self._n_steps * self._n_what,  # what scale
+        #     self._n_steps * self._n_transform_param,  # where code
+        #     self._n_steps * self._n_transform_param,  # where loc
+        #     self._n_steps * self._n_transform_param,  # where scale
+        #     self._n_steps * 1,  # presence prob
+        #     self._n_steps * 1  # presence
+        # ]
+
+    @property
+    def output_names(self):
+        return 'what what_loc what_scale where where_loc where_scale presence_prob presence'.split()
+
+    def initial_inpt(self, batch_size):
+        # TODO: trainable or sampled from a prior
+        with self._enter_variable_scope():
+            what = tf.zeros((1, self._cell._n_what))
+            where = tf.zeros((1, self._cell._n_transform_param))
+            presence = tf.zeros((1, 1))
+            return [tf.tile(i, (batch_size, self._n_steps)) for i in what, where, presence]
+
+    def initial_state(self, img):
+        batch_size = int(img.shape[0])
+        z_tm1 = self.initial_inpt(batch_size)
+
+        hidden_state = self._cell.initial_state(img)
+        return z_tm1, hidden_state[1:]
+
+    def _build(self, img, state):
+
+        batch_size = int(img.shape[0])
+        z_tm1, inner_state = state
+
+        # prepare latents
+        z_tm1 = [tf.reshape(i, (batch_size, self._n_steps, -1)) for i in z_tm1]
+
+        # prepare state
+        flat_img = tf.reshape(img, (batch_size, self._cell._n_pix))
+        hidden_state = [flat_img] + inner_state
+
+        hidden_outputs = []
+        for i in xrange(self._n_steps):
+            z_tm1_per_object = [z[..., i, :] for z in z_tm1]
+            hidden_output, hidden_state = self._cell(z_tm1_per_object, hidden_state)
+            hidden_outputs.append(hidden_output)
+
+        hidden_outputs = zip(*hidden_outputs)
+        for i, ho in enumerate(hidden_outputs):
+            hidden_outputs[i] = tf.concat(ho, -1)
+
+        # extract latents
+        z = [hidden_outputs[i] for i in [0, 3, 7]]
+
+        # we overwrite only the hidden state of the inner rnn
+        inner_state[-1] = hidden_state[-1]
+        state = z, inner_state
+
+        return hidden_outputs, state

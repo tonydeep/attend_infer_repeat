@@ -5,7 +5,7 @@ from tensorflow.contrib.distributions import Normal
 from tensorflow.python.util import nest
 
 import ops
-from cell import AIRCell
+from cell import AIRCell, SeqAIRCell
 from evaluation import gradient_summaries
 from prior import NumStepsDistribution
 from modules import AIRDecoder
@@ -81,25 +81,27 @@ class AIRModel(object):
         previous_vars = tf.trainable_variables()
 
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder)
-        self.cell = AIRCell(self.img_size, self.glimpse_size, self.n_what, transition,
+        air_cell = AIRCell(self.img_size, self.glimpse_size, self.n_what, transition,
                             input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                             discrete_steps=self.discrete_steps,
                             debug=self.debug,
                             **cell_kwargs)
 
+        self.cell = SeqAIRCell(self.max_steps, air_cell)
         initial_state = self.cell.initial_state(self.used_obs)
 
-        dummy_sequence = tf.zeros((self.max_steps, self.effective_batch_size, 1), name='dummy_sequence')
-        outputs, state = tf.nn.dynamic_rnn(self.cell, dummy_sequence, initial_state=initial_state, time_major=True)
+        inpt = self.used_obs[tf.newaxis]
+        outputs, state = tf.nn.dynamic_rnn(self.cell, inpt, initial_state=initial_state, time_major=True)
 
         for name, output in zip(self.cell.output_names, outputs):
-            output = tf.transpose(output, (1, 0, 2))
+            output = output[0]
+            output = tf.reshape(output, (self.effective_batch_size, self.max_steps, -1))
             setattr(self, name, output)
 
         self.canvas, self.glimpse = self.decoder(self.what, self.where, self.presence)
         self.canvas *= self.output_multiplier
 
-        self.final_state = state[-2]
+        self.final_state = state[-1]
         self.num_step_per_sample = tf.to_float(tf.reduce_sum(tf.squeeze(self.presence), -1))
 
         self.output_distrib, self.num_steps_posterior, self.scale_posterior, self.shift_posterior, self.what_posterior\
