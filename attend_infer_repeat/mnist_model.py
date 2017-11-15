@@ -53,6 +53,8 @@ class MNISTPriorMixin(AIRPriorMixin, LogLikelihoodMixin):
 
 class AIRonMNIST(AIRModel, MNISTPriorMixin, LogLikelihoodMixin):
     """Implements AIR for the MNIST dataset"""
+    transition_class = snt.LSTM
+    condition_on_latents = False
 
     def __init__(self, obs, glimpse_size=(20, 20),
                  inpt_encoder_hidden=[256]*2,
@@ -77,7 +79,7 @@ class AIRonMNIST(AIRModel, MNISTPriorMixin, LogLikelihoodMixin):
             obs=obs,
             glimpse_size=glimpse_size,
             n_what=50,
-            transition=snt.LSTM(256),
+            transition=self.transition_class(256),
             input_encoder=partial(Encoder, inpt_encoder_hidden),
             glimpse_encoder=partial(Encoder, glimpse_encoder_hidden),
             glimpse_decoder=partial(Decoder, glimpse_decoder_hidden),
@@ -85,6 +87,7 @@ class AIRonMNIST(AIRModel, MNISTPriorMixin, LogLikelihoodMixin):
                                       scale_bias=self.transform_var_bias, min_glimpse_size=self.min_glimpse_size),
             steps_predictor=partial(StepsPredictor, steps_pred_hidden, self.step_bias),
             output_std=.3,
+            condition_on_latents=self.condition_on_latents
             **kwargs
         )
 

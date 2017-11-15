@@ -15,7 +15,7 @@ class AIRCell(snt.RNNCore):
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                 discrete_steps=True, debug=False):
+                 condition_on_latents=False, discrete_steps=True, debug=False):
         """Creates the cell
 
         :param img_size: int tuple, size of the image
@@ -39,6 +39,7 @@ class AIRCell(snt.RNNCore):
         self._transition = transition
         self._n_hidden = self._transition.output_size[0]
 
+        self._condition_on_latents = condition_on_latents
         self._sample_presence = discrete_steps
         self._debug = debug
 
@@ -105,8 +106,11 @@ class AIRCell(snt.RNNCore):
 
         inpt_encoding = self._input_encoder(img)
         with tf.variable_scope('rnn_inpt'):
-            transition_inpt = inpt_encoding
-            # transition_inpt = tf.concat((inpt_encoding, what_code, where_code, presence), -1)
+            if self._condition_on_latents:
+                transition_inpt = tf.concat((inpt_encoding, what_code, where_code, presence), -1)
+            else:
+                transition_inpt = inpt_encoding
+
             hidden_output, hidden_state = self._transition(transition_inpt, hidden_state)
 
         where_param = self._transform_estimator(hidden_output)

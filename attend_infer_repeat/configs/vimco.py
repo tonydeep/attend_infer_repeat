@@ -1,4 +1,5 @@
 import tensorflow as tf
+import sonnet as snt
 
 from attend_infer_repeat.mnist_model import (AIRonMNIST,
                                              KLBySamplingMixin)
@@ -21,8 +22,9 @@ tf.flags.DEFINE_boolean('importance_resample', False, '')
 tf.flags.DEFINE_boolean('use_r_imp_weight', True, '')
 tf.flags.DEFINE_boolean('vimco_per_sample_control', False, '')
 tf.flags.DEFINE_boolean('sequential', False, '')
+tf.flags.DEFINE_boolean('condition_on_latents', False, '')
 tf.flags.DEFINE_string('opt', '', '')
-
+tf.flags.DEFINE_string('transition', 'LSTM', '')
 
 
 def load(img, num):
@@ -40,6 +42,8 @@ def load(img, num):
         init_step_success_prob = f.init_step_success_prob
         n_anneal_steps_loss = f.n_anneal_steps_loss
         where_prior_scale = f.where_prior_scale
+        transition_class = getattr(snt, f.transition)
+        condition_on_latents = f.condition_on_latents
 
     air = AIRwithVIMCO(img,
                       max_steps=f.n_steps_per_image,

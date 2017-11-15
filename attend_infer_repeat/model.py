@@ -60,8 +60,6 @@ class AIRModel(object):
         self.sequential = sequential
         self.debug = debug
 
-        print 'iw_samples', iw_samples
-
         offset = int(self.sequential)
         tiles = [iw_samples] + [1] * (obs.shape.ndims - (1 + offset))
         if self.sequential:
@@ -72,8 +70,6 @@ class AIRModel(object):
         with tf.variable_scope(self.__class__.__name__):
             self.output_multiplier = tf.Variable(output_multiplier, dtype=tf.float32, trainable=False, name='canvas_multiplier')
 
-
-
             shape = self.obs.get_shape().as_list()
             self.batch_size = shape[0 + offset]
             self.n_timesteps = 1 if not self.sequential else shape[0]
@@ -83,6 +79,7 @@ class AIRModel(object):
             self.flat_batch_size = self.n_timesteps * self.batch_size
 
             self.img_size = shape[1 + offset:]
+            self.flat_obs = tf.reshape(self.obs, [self.flat_batch_size] + self.img_size)
             self.flat_used_obs = tf.reshape(self.used_obs, [self.flat_effective_batch_size] + self.img_size)
             self._build(transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                         steps_predictor, cell_kwargs)
@@ -120,6 +117,7 @@ class AIRModel(object):
 
         self.canvas, self.glimpse = self.decoder(self.what, self.where, self.presence)
         self.canvas *= self.output_multiplier
+        self.timed_canvas = tf.reshape(self.canvas, [self.n_timesteps, self.batch_size] + self.img_size)
 
         self.final_state = state[-1]
         self.num_step_per_sample = tf.to_float(tf.reduce_sum(tf.squeeze(self.presence), -1))
