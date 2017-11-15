@@ -27,7 +27,7 @@ def make_modules():
     )
 
 
-class ModelTest(unittest.TestCase):
+class SeqModelTest(unittest.TestCase):
     learning_rate = 1e-4
     batch_size = 10
     img_size = (5, 7)
@@ -35,16 +35,17 @@ class ModelTest(unittest.TestCase):
     n_what = 13
     n_steps_per_image = 3
     iw_samples = 2
+    n_timesteps = 2
 
     @classmethod
     def setUpClass(cls):
-        cls.imgs = tf.placeholder(tf.float32, (cls.batch_size,) + cls.img_size, name='inpt')
-        cls.nums = tf.placeholder(tf.float32, (cls.batch_size, cls.n_steps_per_image), name='nums')
+        cls.imgs = tf.placeholder(tf.float32, (cls.n_timesteps, cls.batch_size,) + cls.img_size, name='inpt')
+        cls.nums = tf.placeholder(tf.float32, (cls.n_timesteps, cls.batch_size, cls.n_steps_per_image), name='nums')
 
         print 'Building AIR'
         cls.modules = make_modules()
         cls.air = AIRModelWithPriors(cls.imgs, cls.n_steps_per_image, cls.crop_size, cls.n_what,
-                                     iw_samples=cls.iw_samples, **cls.modules)
+                                     iw_samples=cls.iw_samples, sequential=True, **cls.modules)
         cls.outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.cell.output_names})
         print 'Constructed model'
 
@@ -76,4 +77,4 @@ class ModelTest(unittest.TestCase):
 
     def test_shapes(self):
         learning_signal_shape = self.air.num_steps_learning_signal.shape.as_list()
-        self.assertEqual(learning_signal_shape, [self.batch_size, 1])
+        self.assertEqual(learning_signal_shape, [self.n_timesteps * self.batch_size, 1])

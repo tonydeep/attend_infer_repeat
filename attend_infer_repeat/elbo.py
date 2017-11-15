@@ -111,6 +111,6 @@ class LogLikelihoodMixin(object):
 
     def _log_likelihood(self):
         # Reconstruction Loss, - \E_q [ p(x | z, n) ]
-        rec_loss_per_sample = -self.output_distrib.log_prob(self.used_obs)
+        rec_loss_per_sample = -self.output_distrib.log_prob(self.flat_used_obs)
         rec_loss_per_sample = tf.reduce_sum(rec_loss_per_sample, axis=(1, 2))
         return rec_loss_per_sample

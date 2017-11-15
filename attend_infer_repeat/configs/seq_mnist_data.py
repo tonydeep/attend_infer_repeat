@@ -5,24 +5,32 @@ from attend_infer_repeat.data import load_data as _load_data, tensors_from_data 
 
 flags = tf.flags
 
-tf.flags.DEFINE_string('train_path', 'mnist_train.pickle', '')
-tf.flags.DEFINE_string('valid_path', 'mnist_validation.pickle', '')
+tf.flags.DEFINE_string('train_path', 'seq_mnist_train.pickle', '')
+tf.flags.DEFINE_string('valid_path', 'seq_mnist_validation.pickle', '')
 
-axes = {'imgs': 0, 'labels': 0, 'nums': 1}
+axes = {'imgs': 1, 'labels': 0, 'nums': 1, 'coords': 1}
 
 
-def load(batch_size):
+def truncate(data_dict, n_timesteps):
+    pass
+
+
+def load(batch_size, n_timesteps=None):
 
     f = tf.flags.FLAGS
 
     valid_data = _load_data(f.valid_path)
     train_data = _load_data(f.train_path)
 
+    if n_timesteps is not None:
+        valid_data, train_data = [truncate(i, n_timesteps) for i in (valid_data, train_data)]
+
     train_tensors = _tensors(train_data, batch_size, axes, shuffle=True)
     valid_tensors = _tensors(valid_data, batch_size, axes, shuffle=False)
 
-    train_tensors['nums'] = tf.transpose(train_tensors['nums'][..., 0])
-    valid_tensors['nums'] = tf.transpose(valid_tensors['nums'][..., 0])
+    n_timesteps = tf.shape(train_tensors['imgs'])[0]
+    train_tensors['nums'] = tf.tile(train_tensors['nums'], (n_timesteps, 1, 1))
+    valid_tensors['nums'] = tf.tile(valid_tensors['nums'], (n_timesteps, 1, 1))
 
     data_dict = AttrDict(
         train_img=train_tensors['imgs'],

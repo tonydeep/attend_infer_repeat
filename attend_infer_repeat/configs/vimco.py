@@ -20,7 +20,9 @@ tf.flags.DEFINE_integer('n_steps_per_image', 3, '')
 tf.flags.DEFINE_boolean('importance_resample', False, '')
 tf.flags.DEFINE_boolean('use_r_imp_weight', True, '')
 tf.flags.DEFINE_boolean('vimco_per_sample_control', False, '')
+tf.flags.DEFINE_boolean('sequential', False, '')
 tf.flags.DEFINE_string('opt', '', '')
+
 
 
 def load(img, num):
@@ -52,7 +54,8 @@ def load(img, num):
                       step_bias=f.step_bias,
                       discrete_steps=True,
                       iw_samples=f.n_iw_samples,
-                      output_multiplier=f.output_multiplier)
+                      output_multiplier=f.output_multiplier,
+                      sequential=f.sequential)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)
     if f.opt:
