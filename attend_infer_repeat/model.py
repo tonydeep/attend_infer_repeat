@@ -117,7 +117,7 @@ class AIRModel(object):
 
         self.canvas, self.glimpse = self.decoder(self.what, self.where, self.presence)
         self.canvas *= self.output_multiplier
-        self.timed_canvas = tf.reshape(self.canvas, [self.n_timesteps, self.batch_size] + self.img_size)
+        self.timed_canvas = tf.reshape(self.canvas, [self.n_timesteps, self.effective_batch_size] + self.img_size)
 
         self.final_state = state[-1]
         self.num_step_per_sample = tf.to_float(tf.reduce_sum(tf.squeeze(self.presence), -1))
@@ -188,10 +188,6 @@ class AIRModel(object):
             self.gt_num_steps = tf.reshape(tf.reduce_sum(nums, -1), [self.flat_batch_size])
 
             num_step_per_sample = self.resample(self.num_step_per_sample)
-            print 'num_step_per_sample', num_step_per_sample
-            print 'nums', nums
-            print 'gt_num_steps', self.gt_num_steps
-
             self.num_step_accuracy = tf.reduce_mean(tf.to_float(tf.equal(self.gt_num_steps, num_step_per_sample)))
 
         # negative ELBO

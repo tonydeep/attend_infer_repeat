@@ -43,7 +43,6 @@ def load(img, num):
         n_anneal_steps_loss = f.n_anneal_steps_loss
         where_prior_scale = f.where_prior_scale
         transition_class = getattr(snt, f.transition)
-        condition_on_latents = f.condition_on_latents
 
     air = AIRwithVIMCO(img,
                       max_steps=f.n_steps_per_image,
@@ -59,7 +58,8 @@ def load(img, num):
                       discrete_steps=True,
                       iw_samples=f.n_iw_samples,
                       output_multiplier=f.output_multiplier,
-                      sequential=f.sequential)
+                      sequential=f.sequential,
+                      condition_on_latents=f.condition_on_latents)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)
     if f.opt:

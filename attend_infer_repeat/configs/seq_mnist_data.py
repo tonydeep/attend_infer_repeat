@@ -7,12 +7,15 @@ flags = tf.flags
 
 tf.flags.DEFINE_string('train_path', 'seq_mnist_train.pickle', '')
 tf.flags.DEFINE_string('valid_path', 'seq_mnist_validation.pickle', '')
+tf.flags.DEFINE_integer('seq_len', 0, '')
 
 axes = {'imgs': 1, 'labels': 0, 'nums': 1, 'coords': 1}
 
 
 def truncate(data_dict, n_timesteps):
-    pass
+    data_dict['imgs'] = data_dict['imgs'][:n_timesteps]
+    data_dict['coords'] = data_dict['coords'][:n_timesteps]
+    return data_dict
 
 
 def load(batch_size, n_timesteps=None):
@@ -21,6 +24,9 @@ def load(batch_size, n_timesteps=None):
 
     valid_data = _load_data(f.valid_path)
     train_data = _load_data(f.train_path)
+
+    if n_timesteps is None and f.seq_len != 0:
+        n_timesteps = f.seq_len
 
     if n_timesteps is not None:
         valid_data, train_data = [truncate(i, n_timesteps) for i in (valid_data, train_data)]
