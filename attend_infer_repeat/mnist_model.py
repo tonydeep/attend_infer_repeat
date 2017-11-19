@@ -90,8 +90,9 @@ class AIRonMNIST(AIRModel, MNISTPriorMixin, LogLikelihoodMixin):
         )
 
 
-class SeqAIRonMNIST(SeqAIRModel):
+class SeqAIRonMNIST(SeqAIRModel, MNISTPriorMixin):
     """Implements AIR for the MNIST dataset"""
+    transition_class = snt.LSTM
 
     def __init__(self, obs, glimpse_size=(20, 20),
                  inpt_encoder_hidden=[256]*2,
@@ -99,27 +100,26 @@ class SeqAIRonMNIST(SeqAIRModel):
                  glimpse_decoder_hidden=[252]*2,
                  transform_estimator_hidden=[256]*2,
                  steps_pred_hidden=[50]*1,
-                 baseline_hidden=[256, 128]*1,
                  transform_var_bias=-2.,
+                 min_glimpse_size=0.,
                  step_bias=0.,
                  *args, **kwargs):
 
         self.transform_var_bias = tf.Variable(transform_var_bias, trainable=False, dtype=tf.float32,
                                                        name='transform_var_bias')
+        self.min_glimpse_size = min_glimpse_size
         self.step_bias = tf.Variable(step_bias, trainable=False, dtype=tf.float32, name='step_bias')
-        self.baseline = BaselineMLP(baseline_hidden)
-
         super(SeqAIRonMNIST, self).__init__(
             *args,
             obs=obs,
             glimpse_size=glimpse_size,
-            n_appearance=50,
-            transition=snt.LSTM(256),
+            n_what=50,
+            transition=self.transition_class(256),
             input_encoder=partial(Encoder, inpt_encoder_hidden),
             glimpse_encoder=partial(Encoder, glimpse_encoder_hidden),
             glimpse_decoder=partial(Decoder, glimpse_decoder_hidden),
             transform_estimator=partial(StochasticTransformParam, transform_estimator_hidden,
-                                      scale_bias=self.transform_var_bias),
+                                      scale_bias=self.transform_var_bias, min_glimpse_size=self.min_glimpse_size),
             steps_predictor=partial(StepsPredictor, steps_pred_hidden, self.step_bias),
             output_std=.3,
             **kwargs

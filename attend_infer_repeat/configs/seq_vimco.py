@@ -1,10 +1,9 @@
 import tensorflow as tf
 import sonnet as snt
 
-from attend_infer_repeat.mnist_model import (AIRonMNIST,
-                                             KLBySamplingMixin)
-from attend_infer_repeat.grad import VIMCOEstimator
+from attend_infer_repeat.mnist_model import SeqAIRonMNIST, KLBySamplingMixin
 from attend_infer_repeat.experiment_tools import optimizer_from_string
+
 
 flags = tf.flags
 
@@ -20,6 +19,7 @@ tf.flags.DEFINE_integer('n_iw_samples', 5, '')
 tf.flags.DEFINE_integer('n_steps_per_image', 3, '')
 tf.flags.DEFINE_boolean('importance_resample', False, '')
 tf.flags.DEFINE_boolean('condition_on_latents', False, '')
+tf.flags.DEFINE_boolean('condition_on_prev', False, '')
 tf.flags.DEFINE_string('opt', '', '')
 tf.flags.DEFINE_string('transition', 'LSTM', '')
 
@@ -32,27 +32,26 @@ def load(img, num):
     n_layers = 2
     n_hiddens = [n_hidden] * n_layers
 
-    class AIRwithVIMCO(AIRonMNIST, VIMCOEstimator, KLBySamplingMixin):
+    class SeqAIRwithVIMCO(SeqAIRonMNIST, KLBySamplingMixin):
         importance_resample = f.importance_resample
         init_step_success_prob = f.init_step_success_prob
         n_anneal_steps_loss = f.n_anneal_steps_loss
         where_prior_scale = f.where_prior_scale
         transition_class = getattr(snt, f.transition)
 
-    air = AIRwithVIMCO(img,
+    air = SeqAIRwithVIMCO(img,
                       max_steps=f.n_steps_per_image,
                       inpt_encoder_hidden=n_hiddens,
                       glimpse_encoder_hidden=n_hiddens,
                       glimpse_decoder_hidden=n_hiddens,
                       transform_estimator_hidden=n_hiddens,
                       steps_pred_hidden=[128, 64],
-                      baseline_hidden=[256, 128],
                       transform_var_bias=f.transform_var_bias,
                       min_glimpse_size=f.min_glimpse_size,
                       step_bias=f.step_bias,
-                      discrete_steps=True,
                       iw_samples=f.n_iw_samples,
                       output_multiplier=f.output_multiplier,
+                      condition_on_prev=f.condition_on_prev,
                       condition_on_latents=f.condition_on_latents)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)

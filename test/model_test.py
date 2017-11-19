@@ -63,6 +63,8 @@ class ModelTest(unittest.TestCase):
         for k, v in res.iteritems():
             print k, v.shape
         print 'loss = {}'.format(l)
+        self.assertLess(l, 70.)
+        self.assertGreater(l, 40.)
 
     def test_backward(self):
         sess = tf.Session()

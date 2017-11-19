@@ -30,12 +30,28 @@ class AIRPriorMixin(object):
 
         num_step_prior_prob, num_step_prior = geometric_prior(self._geom_success_prob(**kwargs), self.max_steps)
         scale = Normal(self.scale_prior_loc, self.where_prior_scale)
-        shift = Normal(self.shift_posterior.loc, self.where_prior_scale)
+        shift = Normal(0., self.where_prior_scale)
         what = Normal(0., self.what_prior_scale)
         return num_step_prior_prob, num_step_prior, scale, shift, what
 
 
-class KLZMixin(object):
+class KLBaseMixin(object):
+    analytic_kl_expectation = False
+
+    def _ordered_step_prob(self):
+        raise NotImplementedError
+
+    def _kl_where(self):
+        raise NotImplementedError
+
+    def _kl_what(self):
+        raise NotImplementedError
+
+    def _kl_num_steps(self):
+        raise NotImplementedError
+
+
+class KLZMixin(KLBaseMixin):
 
     def _ordered_step_prob(self):
         if self.analytic_kl_expectation:
@@ -60,7 +76,7 @@ class KLZMixin(object):
         return where_kl_per_sample, None, None
 
 
-class KLNumStepsMixin(object):
+class KLNumStepsMixin(KLBaseMixin):
     def _kl_num_steps(self):
         num_steps_posterior_prob = self.num_steps_posterior.prob()
         steps_kl = tabular_kl(num_steps_posterior_prob, self.num_step_prior_prob)
@@ -68,13 +84,11 @@ class KLNumStepsMixin(object):
         return kl_num_steps_per_sample
 
 
-class KLNumStepsNoGradMixin(KLNumStepsMixin):
-    def _kl_num_steps(self):
-        kls = super(KLNumStepsNoGradMixin, self)._kl_num_steps()
-        return (tf.stop_gradient(kl) for kl in kls)
+class KLMixin(KLZMixin, KLNumStepsMixin):
+    pass
 
 
-class KLBySamplingMixin(object):
+class KLBySamplingMixin(KLBaseMixin):
     def _ordered_step_prob(self):
         return tf.squeeze(self.presence)
 
@@ -97,14 +111,6 @@ class KLBySamplingMixin(object):
     def _kl_num_steps(self):
         kl_num_steps_per_sample = kl_by_sampling(self.num_steps_posterior, self.num_step_prior, self.num_step_per_sample)
         return kl_num_steps_per_sample
-
-
-class KLMixin(KLZMixin, KLNumStepsMixin):
-    pass
-
-
-class KLNoStepsGradMixin(KLZMixin, KLNumStepsNoGradMixin):
-    pass
 
 
 class LogLikelihoodMixin(object):

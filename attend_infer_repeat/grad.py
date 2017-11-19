@@ -30,14 +30,14 @@ class ImportanceWeightedMixin(object):
         return self.nelbo
 
     def _resample(self, *args):
-        iw_sample_idx = self._iw_sample_index * self.flat_batch_size + tf.range(self.flat_batch_size)
+        iw_sample_idx = self._iw_sample_index + tf.range(self.batch_size) * self.iw_samples
         resampled = [tf.gather(arg, iw_sample_idx) for arg in args]
 
         return resampled
 
     def _estimate_importance_weighted_elbo(self, per_sample_elbo):
 
-        per_sample_elbo = tf.reshape(per_sample_elbo, (self.flat_batch_size, self.iw_samples))
+        per_sample_elbo = tf.reshape(per_sample_elbo, (self.batch_size, self.iw_samples))
         importance_weights = tf.nn.softmax(per_sample_elbo, -1)
         self.iw_distrib = tf.contrib.distributions.Categorical(per_sample_elbo)
         self._iw_sample_index = self.iw_distrib.sample()
@@ -130,7 +130,7 @@ class ImportanceWeightedNVILEstimator(ImportanceWeightedMixin, EstimatorBaseline
         self.elbo_importance_weights = tf.stop_gradient(elbo_importance_weights)
 
         self.negative_weighted_per_sample_elbo = self.elbo_importance_weights \
-                                            * tf.reshape(negative_per_sample_elbo, (self.flat_batch_size, self.iw_samples))
+                                            * tf.reshape(negative_per_sample_elbo, (self.batch_size, self.iw_samples))
 
         # loss used as a proxy for gradient computation
         self.baseline, self.baseline_vars = self.make_baseline()
@@ -138,18 +138,18 @@ class ImportanceWeightedNVILEstimator(ImportanceWeightedMixin, EstimatorBaseline
         posterior_num_steps_log_prob = self.num_steps_posterior.log_prob(self.num_step_per_sample)
         if self.importance_resample:
             posterior_num_steps_log_prob = self._resample(posterior_num_steps_log_prob)
-            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.flat_batch_size, 1))
+            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.batch_size, 1))
 
             # this could be constant e.g. 1, but the expectation of this is zero anyway, so there's no point in adding that.
             r_imp_weight = 0.
         else:
-            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.flat_batch_size, self.iw_samples))
+            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.batch_size, self.iw_samples))
             r_imp_weight = self.elbo_importance_weights
 
         if not self.use_r_imp_weight:
             r_imp_weight = 0.
 
-        self.nelbo_per_sample = -tf.reshape(iw_elbo_estimate, (self.flat_batch_size, 1))
+        self.nelbo_per_sample = -tf.reshape(iw_elbo_estimate, (self.batch_size, 1))
         num_steps_learning_signal = self.nelbo_per_sample
         self.nelbo = tf.reduce_mean(self.nelbo_per_sample)
         self.proxy_loss = self.nelbo + self._l2_loss()
@@ -197,7 +197,7 @@ class ImportanceWeightedNVILEstimator(ImportanceWeightedMixin, EstimatorBaseline
         reinforce_loss_per_sample = tf.stop_gradient(self.num_steps_learning_signal) * posterior_num_steps_log_prob
 
         shape = reinforce_loss_per_sample.shape.as_list()
-        assert len(shape) == 2 and shape[0] == self.flat_batch_size and shape[1] in (1, self.iw_samples), 'shape is {}'.format(shape)
+        assert len(shape) == 2 and shape[0] == self.batch_size and shape[1] in (1, self.iw_samples), 'shape is {}'.format(shape)
 
         reinforce_loss = tf.reduce_mean(tf.reduce_sum(reinforce_loss_per_sample, -1))
         tf.summary.scalar('reinforce_loss', reinforce_loss)
@@ -206,15 +206,11 @@ class ImportanceWeightedNVILEstimator(ImportanceWeightedMixin, EstimatorBaseline
 
 
 class VIMCOEstimator(ImportanceWeightedMixin):
-    vimco_per_sample_control=False
-
     decay_rate = None
-    use_r_imp_weight = True
     n_anneal_steps_loss = 1.
 
     def _make_train_step(self, make_opt, rec_loss_per_sample, kl_div_per_sample):
         assert self.iw_samples >= 2, 'VIMCO requires at least two importance samples'
-
 
         # 1) estimate the per-sample elbo
         negative_per_sample_elbo = rec_loss_per_sample + kl_div_per_sample
@@ -226,7 +222,7 @@ class VIMCOEstimator(ImportanceWeightedMixin):
         self.elbo_importance_weights = tf.stop_gradient(elbo_importance_weights)
 
         self.negative_weighted_per_sample_elbo = self.elbo_importance_weights \
-                                            * tf.reshape(negative_per_sample_elbo, (self.flat_batch_size, self.iw_samples))
+                                            * tf.reshape(negative_per_sample_elbo, (self.batch_size, self.iw_samples))
 
         self.baseline = self._make_baseline(per_sample_elbo)
 
@@ -234,23 +230,20 @@ class VIMCOEstimator(ImportanceWeightedMixin):
         posterior_num_steps_log_prob = self.num_steps_posterior.log_prob(self.num_step_per_sample)
         if self.importance_resample:
             posterior_num_steps_log_prob = self._resample(posterior_num_steps_log_prob)
-            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.flat_batch_size, 1))
+            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.batch_size, 1))
 
             baseline = tf.reshape(self.baseline, tf.shape(negative_per_sample_elbo))
             nelbo_per_sample, baseline = self._resample(negative_per_sample_elbo, baseline)
-            self.nelbo_per_sample = tf.reshape(nelbo_per_sample, (self.flat_batch_size, 1))
-            self.baseline = tf.reshape(baseline, (self.flat_batch_size, 1))
+            self.nelbo_per_sample = tf.reshape(nelbo_per_sample, (self.batch_size, 1))
+            self.baseline = tf.reshape(baseline, (self.batch_size, 1))
 
             # this could be constant e.g. 1, but the expectation of this is zero anyway,
             #  so there's no point in adding that.
             r_imp_weight = 0.
         else:
-            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.flat_batch_size, self.iw_samples))
+            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.batch_size, self.iw_samples))
             r_imp_weight = self.elbo_importance_weights
-            self.nelbo_per_sample = -tf.reshape(iw_elbo_estimate, (self.flat_batch_size, 1))
-
-        if not self.use_r_imp_weight:
-            r_imp_weight = 0.
+            self.nelbo_per_sample = -tf.reshape(iw_elbo_estimate, (self.batch_size, 1))
 
         num_steps_learning_signal = self.nelbo_per_sample
         self.nelbo = tf.reduce_mean(self.nelbo_per_sample)
@@ -275,32 +268,14 @@ class VIMCOEstimator(ImportanceWeightedMixin):
         # compute the baseline
         #########################
         # 3) precompute the sum of per-sample bounds
-        reshaped_per_sample_elbo = tf.reshape(per_sample_elbo, (self.flat_batch_size, self.iw_samples))
+        reshaped_per_sample_elbo = tf.reshape(per_sample_elbo, (self.batch_size, self.iw_samples))
         summed_per_sample_elbo = tf.reduce_sum(reshaped_per_sample_elbo, -1, keep_dims=True)
 
         # 4) compute the baseline
         all_but_one_average = (summed_per_sample_elbo - reshaped_per_sample_elbo) / (self.iw_samples - 1.)
 
-        if self.vimco_per_sample_control:
-            baseline, control = self._exped_baseline_and_control(reshaped_per_sample_elbo, all_but_one_average)
-        else:
-            control = tf.reduce_max(reshaped_per_sample_elbo, -1, keep_dims=True) - .78
-            exped_per_sample_elbo = tf.exp(reshaped_per_sample_elbo - control)
-            summed_exped_per_sample_elbo = tf.reduce_sum(exped_per_sample_elbo, -1, keep_dims=True)
-            baseline = summed_exped_per_sample_elbo - exped_per_sample_elbo + tf.exp(all_but_one_average - control)
-
-
-        # the log-arg for the baseline can be zero when the elbo for that particular estimate is the max of estimates
-        # for all other samples; when this happenes, and when the differences are big, then
-        # `summed_exped_per_sample_elbo` takes the value of `exped_per_sample_elbo`; also then `all_but_one_average` is
-        # smaller than `control` (average is always less extreme) and all goes to hell.
-        #
-        # adding an eps for numerical stability biases the baseline, so it's better to just set the value of the
-        #  baseline equal to the learnig signal for that sample, which effectively takes this sample away from.
-        #baseline_is_zero = tf.equal(baseline, 0.)
-
+        baseline, control = self._exped_baseline_and_control(reshaped_per_sample_elbo, all_but_one_average)
         baseline = tf.log(baseline) - math.log(self.iw_samples) + control
-        #baseline = tf.where(baseline_is_zero, reshaped_per_sample_elbo, baseline)
         return -baseline
 
     def _reinforce(self, learning_signal, posterior_num_steps_log_prob):
@@ -318,7 +293,7 @@ class VIMCOEstimator(ImportanceWeightedMixin):
         reinforce_loss_per_sample = tf.stop_gradient(self.num_steps_learning_signal) * posterior_num_steps_log_prob
     
         shape = reinforce_loss_per_sample.shape.as_list()
-        assert len(shape) == 2 and shape[0] == self.flat_batch_size and shape[1] in (1, self.iw_samples), 'shape is {}'.format(shape)
+        assert len(shape) == 2 and shape[0] == self.batch_size and shape[1] in (1, self.iw_samples), 'shape is {}'.format(shape)
 
         reinforce_loss = tf.reduce_mean(tf.reduce_sum(reinforce_loss_per_sample, -1))
         tf.summary.scalar('reinforce_loss', reinforce_loss)

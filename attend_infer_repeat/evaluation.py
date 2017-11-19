@@ -173,9 +173,18 @@ def make_expr_logger(sess, writer, num_batches, expr_dict, name, data_dict=None,
     if measure_time:
         log_string += ', eval time = {:.4}s'
 
-        def log(itr, l, t): return log_string.format(itr, t, **l)
+        def make_log_string(itr, l, t): return log_string.format(itr, t, **l)
     else:
-        def log(itr, l, t): return log_string.format(itr, **l)
+        def make_log_string(itr, l, t): return log_string.format(itr, **l)
+
+    def log(itr, l, t):
+        try:
+            return make_log_string(itr, l, t)
+        except ValueError as err:
+            print err.message
+            print '\tLogging items'
+            for k, v in l.iteritems():
+                print '{}: {}'.format(k, type(v))
 
     def logger(itr=0, num_batches_to_eval=None, write=True):
         l = {k: 0. for k in expr_dict}

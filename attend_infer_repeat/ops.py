@@ -136,7 +136,67 @@ def sample_from_tensor(tensor, idx):
 
     return samples
 
+
 def expand_around_zero(x, eps):
     gaus = tf.exp(-0.5 * x ** 2)
     sign = tf.to_float(tf.greater_equal(x, 0.))
     return x + (2 * sign - 1.) * eps * gaus 
+
+
+def gather_axis(tensor, idx, axis=-1):
+    """Gathers indices `idx` from `tensor` along axis `axis`
+
+    The shape of the returned tensor is as follows:
+    >>> shape = tensor.shape
+    >>> shape[axis] = len(idx)
+    >>> return shape
+
+    :param tensor: n-D tf.Tensor
+    :param idx: 1-D tf.Tensor
+    :param axis: int
+    :return: tf.Tensor
+    """
+
+    axis = tf.convert_to_tensor(axis)
+    neg_axis = tf.less(axis, 0)
+    axis = tf.cond(neg_axis, lambda: tf.shape(tf.shape(tensor))[0] + axis, lambda: axis)
+    shape = tf.shape(tensor)
+    pre, post = shape[:axis+1], shape[axis+1:]
+    shape = tf.concat((pre[:-1], tf.shape(idx)[:1], post), -1)
+
+    n = tf.reduce_prod(pre[:-1])
+    idx = tf.tile(idx[tf.newaxis], (n, 1))
+    idx += tf.range(n)[:, tf.newaxis] * pre[-1]
+    linear_idx = tf.reshape(idx, [-1])
+
+    flat = tf.reshape(tensor, tf.concat(([n * pre[-1]], post), -1))
+    flat = tf.gather(flat, linear_idx)
+    tensor = tf.reshape(flat, shape)
+    return tensor
+
+
+def tile_input_for_iwae(tensor, iw_samples, with_time=False):
+    """Tiles tensor `tensor` in such a way that tiled samples are contiguous in memory;
+    i.e. it tiles along the axis after the batch axis and reshapes to have the same rank as
+    the original tensor
+
+    :param tensor: tf.Tensor to be tiled
+    :param iw_samples: int, number of importance-weighted samples
+    :param with_time: boolean, if true than an additional axis at the beginning is assumed
+    :return:
+    """
+
+    shape = tensor.shape.as_list()
+    if with_time:
+        shape[0] = tf.shape(tensor)[0]
+    shape[with_time] *= iw_samples
+
+    tiles = [1, iw_samples] + [1] * (tensor.shape.ndims - (1 + with_time))
+    if with_time:
+        tiles = [1] + tiles
+
+    tensor = tf.expand_dims(tensor, 1 + with_time)
+    tensor = tf.tile(tensor, tiles)
+    tensor = tf.reshape(tensor, shape)
+    return tensor
+

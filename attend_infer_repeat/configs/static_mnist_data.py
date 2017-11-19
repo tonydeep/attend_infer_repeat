@@ -7,6 +7,7 @@ flags = tf.flags
 
 tf.flags.DEFINE_string('train_path', 'mnist_train.pickle', '')
 tf.flags.DEFINE_string('valid_path', 'mnist_validation.pickle', '')
+tf.flags.DEFINE_integer('seq_len', 0, '')
 
 axes = {'imgs': 0, 'labels': 0, 'nums': 1}
 
@@ -23,6 +24,13 @@ def load(batch_size):
 
     train_tensors['nums'] = tf.transpose(train_tensors['nums'][..., 0])
     valid_tensors['nums'] = tf.transpose(valid_tensors['nums'][..., 0])
+    
+    if f.seq_len > 0:
+        train_tensors['nums'] = train_tensors['nums'][tf.newaxis]
+        valid_tensors['nums'] = valid_tensors['nums'][tf.newaxis]
+        train_tensors['imgs'] = train_tensors['imgs'][tf.newaxis]
+        valid_tensors['imgs'] = valid_tensors['imgs'][tf.newaxis]
+        
 
     data_dict = AttrDict(
         train_img=train_tensors['imgs'],

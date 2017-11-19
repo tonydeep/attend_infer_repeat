@@ -4,16 +4,11 @@ import tensorflow as tf
 from tensorflow.contrib.distributions import Normal
 from tensorflow.python.util import nest
 
-import ops
 from cell import AIRCell, SeqAIRCell
 from evaluation import gradient_summaries
 from prior import NumStepsDistribution
 from modules import AIRDecoder
-
-
-# TODO: extract things related to NVIL to a separate class, possibly a mixin
-# TODO: implement IWAE
-# TODO: implement VIMCO as a mixin
+from ops import tile_input_for_iwae
 
 
 class AIRModel(object):
@@ -28,7 +23,7 @@ class AIRModel(object):
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
                  output_std=1., discrete_steps=True, output_multiplier=1., iw_samples=1,
-                 sequential=False, debug=False, **cell_kwargs):
+                 debug=False, **cell_kwargs):
         """Creates the model.
 
         :param obs: tf.Tensor, images
@@ -49,7 +44,6 @@ class AIRModel(object):
         """
 
         self.obs = obs
-
         self.max_steps = max_steps
         self.glimpse_size = glimpse_size
         self.n_what = n_what
@@ -57,30 +51,21 @@ class AIRModel(object):
         self.discrete_steps = discrete_steps
         self.output_multiplier = output_multiplier
         self.iw_samples = iw_samples
-        self.sequential = sequential
         self.debug = debug
 
-        offset = int(self.sequential)
-        tiles = [iw_samples] + [1] * (obs.shape.ndims - (1 + offset))
-        if self.sequential:
-            tiles = [1] + tiles
-
-        self.used_obs = tf.tile(self.obs, tiles)
+        self.used_obs = tile_input_for_iwae(self.obs, self.iw_samples)
 
         with tf.variable_scope(self.__class__.__name__):
             self.output_multiplier = tf.Variable(output_multiplier, dtype=tf.float32, trainable=False, name='canvas_multiplier')
 
             shape = self.obs.get_shape().as_list()
-            self.batch_size = shape[0 + offset]
-            self.n_timesteps = 1 if not self.sequential else shape[0]
+            self.batch_size = shape[0]
 
             self.effective_batch_size = self.batch_size * self.iw_samples
-            self.flat_effective_batch_size = self.n_timesteps * self.effective_batch_size
-            self.flat_batch_size = self.n_timesteps * self.batch_size
 
-            self.img_size = shape[1 + offset:]
-            self.flat_obs = tf.reshape(self.obs, [self.flat_batch_size] + self.img_size)
-            self.flat_used_obs = tf.reshape(self.used_obs, [self.flat_effective_batch_size] + self.img_size)
+            self.img_size = shape[1:]
+            self.flat_obs = tf.reshape(self.obs, [self.batch_size] + self.img_size)
+            self.flat_used_obs = tf.reshape(self.used_obs, [self.effective_batch_size] + self.img_size)
             self._build(transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                         steps_predictor, cell_kwargs)
 
@@ -98,26 +83,17 @@ class AIRModel(object):
                             **cell_kwargs)
 
         self.cell = SeqAIRCell(self.max_steps, air_cell)
-        state_inpt = self.used_obs
-        if self.sequential:
-            state_inpt = state_inpt[0]
-        initial_state = self.cell.initial_state(state_inpt)
+        initial_state = self.cell.initial_state(self.used_obs)
 
-        inpt = self.used_obs
-        if not self.sequential:
-            inpt = inpt[tf.newaxis]
-
-        outputs, state = tf.nn.dynamic_rnn(self.cell, inpt, initial_state=initial_state, time_major=True)
+        # outputs, state = tf.nn.dynamic_rnn(self.cell, self.used_obs, initial_state=initial_state, time_major=True)
+        outputs, state = self.cell(self.used_obs, initial_state)
 
         for name, flat_output in zip(self.cell.output_names, outputs):
-            output = tf.reshape(flat_output, (self.flat_effective_batch_size, self.max_steps, -1))
+            output = tf.reshape(flat_output, (self.effective_batch_size, self.max_steps, -1))
             setattr(self, name, output)
-            output = tf.reshape(flat_output, (self.n_timesteps, self.effective_batch_size, self.max_steps, -1))
-            setattr(self, 'timed_{}'.format(name), output)
 
         self.canvas, self.glimpse = self.decoder(self.what, self.where, self.presence)
         self.canvas *= self.output_multiplier
-        self.timed_canvas = tf.reshape(self.canvas, [self.n_timesteps, self.effective_batch_size] + self.img_size)
 
         self.final_state = state[-1]
         self.num_step_per_sample = tf.to_float(tf.reduce_sum(tf.squeeze(self.presence), -1))
@@ -185,7 +161,7 @@ class AIRModel(object):
         # Metrics
         gradient_summaries(self.gvs)
         if nums is not None:
-            self.gt_num_steps = tf.reshape(tf.reduce_sum(nums, -1), [self.flat_batch_size])
+            self.gt_num_steps = tf.reshape(tf.reduce_sum(nums, -1), [self.batch_size])
 
             num_step_per_sample = self.resample(self.num_step_per_sample)
             self.num_step_accuracy = tf.reduce_mean(tf.to_float(tf.equal(self.gt_num_steps, num_step_per_sample)))
