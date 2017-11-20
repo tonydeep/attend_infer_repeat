@@ -119,7 +119,7 @@ class SeqAIRModel(object):
         pres_ta = make_ta([self.max_steps, 1])
         canvas_ta = make_ta(list(self.img_size))
         glimpse_ta = make_ta([self.max_steps] + list(self.glimpse_size))
-        step_prob_ta = make_ta([self.max_steps])
+        posterior_step_prob_ta = make_ta([self.max_steps + 1])
         likelihood_ta = make_ta()
         kl_what_ta = make_ta([self.max_steps])
         kl_where_ta = make_ta([self.max_steps])
@@ -190,8 +190,8 @@ class SeqAIRModel(object):
             likelihood_per_pixel = Normal(canvas, self.output_std).log_prob(img)
             likelihood = tf.reduce_sum(likelihood_per_pixel, (-2, -1))
 
-            posterior_step_probs = tf.squeeze(presence_prob)
-            num_steps_posterior = NumStepsDistribution(posterior_step_probs)
+            num_steps_posterior = NumStepsDistribution(tf.squeeze(presence_prob))
+            posterior_step_probs = num_steps_posterior.prob()
 
             ax = where_loc.shape.ndims - 1
             us, ut = tf.split(where_loc, 2, ax)
@@ -272,6 +272,11 @@ class SeqAIRModel(object):
         self._log_resampled(tf.reduce_sum(self.kl_what_per_sample, -1), 'kl_what')
         self._log_resampled(tf.reduce_sum(self.kl_what_per_sample, -1), 'kl_where')
         self._log_resampled(self.kl_steps_per_sample, 'kl_num_steps')
+
+        # For rendering
+        resampled_names = 'canvas glimpse presence where posterior_step_prob'.split()
+        for name in resampled_names:
+            setattr(self, 'resampled_' + name, self.resample(getattr(self, name), axis=1))
 
     def train_step(self, learning_rate, nums=None,
                    optimizer=tf.train.RMSPropOptimizer, opt_kwargs=dict(momentum=.9, centered=True)):
@@ -380,21 +385,26 @@ class SeqAIRModel(object):
         tf.summary.scalar('reinforce_loss', reinforce_loss)
         return reinforce_loss
 
-    def resample(self, *args):
+    def resample(self, *args, **kwargs):
+        axis = -1
+        if 'axis' in kwargs:
+            axis = kwargs['axis']
+            del kwargs['axis']
+
         res = list(args)
 
         if self.iw_samples > 1:
             for i, arg in enumerate(res):
-                res[i] = self._resample(arg)
+                res[i] = self._resample(arg, axis)
 
         if len(res) == 1:
             res = res[0]
 
         return res
 
-    def _resample(self, arg):
+    def _resample(self, arg, axis=-1):
         iw_sample_idx = self.imp_resampling_idx + tf.range(self.batch_size) * self.iw_samples
-        return gather_axis(arg, iw_sample_idx, -1)
+        return gather_axis(arg, iw_sample_idx, axis)
 
     def _log_resampled(self, resampled, name):
         resampled = self._resample(resampled)

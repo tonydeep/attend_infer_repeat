@@ -6,11 +6,8 @@
 from os import path as osp
 import tensorflow as tf
 
-from evaluation import make_fig, make_logger
-from experiment_tools import load, init_checkpoint, parse_flags, print_flags, set_flags
-
-
-# In[ ]:
+from evaluation import ProgressFig, make_logger
+from experiment_tools import load, init_checkpoint, parse_flags, print_flags, set_flags_if_notebook
 
 import sys
 sys.path.append('../')
@@ -21,8 +18,8 @@ sys.path.append('../')
 # Define flags
 flags = tf.flags
 
-flags.DEFINE_string('data_config', 'configs/static_mnist_data.py', '')
-flags.DEFINE_string('model_config', 'configs/imp_weighted_nvil.py', '')
+flags.DEFINE_string('data_config', 'configs/seq_mnist_data.py', '')
+flags.DEFINE_string('model_config', 'configs/seq_vimco.py', '')
 flags.DEFINE_string('results_dir', '../checkpoints', '')
 flags.DEFINE_string('run_name', 'test_run', '')
 
@@ -36,9 +33,31 @@ flags.DEFINE_boolean('restart', False, '')
 
 flags.DEFINE_float('eval_size_fraction', .01, '')
 
+
+# In[ ]:
+
+
+set_flags_if_notebook(
+    seq_len=3,
+    n_steps_per_image=4,
+    n_iw_samples=5,
+#     
+    log_every=100,
+    eval_size_fraction=0.01,
+#     
+    learning_rate=1e-5,
+    importance_resample=False,
+#     
+    condition_on_latents=True,
+    transition='VanillaRNN'
+)
+
 # Parse flags
 parse_flags()
 F = flags.FLAGS
+
+
+# In[ ]:
 
 # Prepare enviornment
 logdir = osp.join(F.results_dir, F.run_name)
@@ -91,6 +110,8 @@ train_batches, valid_batches = [int(data_dict[k]['imgs'].shape[ax] * factor) for
 log = make_logger(air, sess, summary_writer, data_dict.train_tensors,
                   train_batches, data_dict.valid_tensors, valid_batches)
 
+progress_fig = ProgressFig(air, sess, logdir)
+
 
 # In[ ]:
 
@@ -99,7 +120,8 @@ print 'Starting training at iter = {}'.format(train_itr)
 
 if train_itr == 0:
     log(0)
-    make_fig(air, sess, logdir, train_itr)
+    progress_fig.plot_still(train_itr)
+    progress_fig.plot_seq(train_itr)
 
 while train_itr < F.max_train_iter:
 
@@ -114,10 +136,16 @@ while train_itr < F.max_train_iter:
 
     if train_itr % F.save_every == 0:
         saver.save(sess, checkpoint_name, global_step=train_itr)
-        make_fig(air, sess, logdir, train_itr)
+        progress_fig.plot_still(train_itr)
+        progress_fig.plot_seq(train_itr)
 
 
 # In[ ]:
 
-make_fig(air, sess, n_samples=64)
+progress_fig.plot_seq(save=False)
+
+
+# In[ ]:
+
+progress_fig.plot_still(save=False)
 

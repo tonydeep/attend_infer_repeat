@@ -28,77 +28,133 @@ def rect_stn(ax, width, height, stn_params, c=None, line_width=3):
     rect(bbox, c, ax=ax, line_width=line_width)
 
 
-def make_fig(air, sess, checkpoint_dir=None, global_step=None, n_samples=10, dpi=300):
-    n_steps = air.max_steps
+class ProgressFig(object):
+    _BBOX_COLORS = 'rgbymcw'
 
-    canvas, glimpse, presence, where = [getattr(air, 'resampled_' + name, getattr(air, name)) for name in 'canvas glimpse presence where'.split()]
-    xx, pred_canvas, pred_crop, prob, pres, w = sess.run(
-        [air.flat_obs, canvas, glimpse, air.num_steps_posterior.prob()[..., 1:], presence, where])
-    height, width = air.img_size[:2]
+    def __init__(self, air, sess, checkpoint_dir=None, n_samples=10, seq_n_samples=3, dpi=300,
+                 fig_scale=1.5):
 
-    bs = min(n_samples, air.batch_size)
-    scale = 1.5
-    figsize = scale * np.asarray((bs, n_steps + 2))
-    fig, axes = plt.subplots(n_steps + 2, bs, figsize=figsize)
+        self.air = air
+        self.sess = sess
+        self.checkpoint_dir = checkpoint_dir
+        self.n_samples = n_samples
+        self.seq_n_samples = seq_n_samples
+        self.dpi = dpi
+        self.fig_scale = fig_scale
 
-    # ground-truth
-    for i, ax in enumerate(axes[0]):
-        ax.imshow(xx[i], cmap='gray', vmin=0, vmax=1)
+        self.n_steps = self.air.max_steps
+        self.n_timesteps = getattr(self.air, 'n_timesteps', None)
+        self.with_time = self.n_timesteps is not None
+        self.height, self.width = air.img_size[:2]
 
-    # reconstructions with marked steps
-    for i, ax in enumerate(axes[1]):
-        ax.imshow(pred_canvas[i], cmap='gray', vmin=0, vmax=1)
-        for j, c in zip(xrange(n_steps), 'rgbym'):
-            if pres[i, j, 0] > .5:
-                rect_stn(ax, width, height, w[i, j], c, line_width=2.)
-    # glimpses
-    for i, ax_row in enumerate(axes[2:]):
-        for j, ax in enumerate(ax_row):
-            ax.imshow(pred_crop[j, i], cmap='gray')
-            ax.set_title('{:d} with p({:d}) = {:.02f}'.format(int(pres[j, i, 0]), i + 1, prob[j, i].squeeze()),
-                         fontsize=4 * scale)
-            ax_row[0].set_ylabel('glimpse #{}'.format(i + 1))
+    def plot_still(self, global_step=None, save=True):
 
-    for ax in axes.flatten():
-        ax.xaxis.set_ticks([])
-        ax.yaxis.set_ticks([])
+        xx, pred_canvas, pred_crop, prob, pres, w = self._air_outputs(single_timestep=True)
+        fig, axes = self._make_fig(self.n_steps + 2, self.n_samples)
 
-    axes[0, 0].set_ylabel('ground-truth')
-    axes[1, 0].set_ylabel('reconstruction')
+        # ground-truth
+        for i, ax in enumerate(axes[0]):
+            ax.imshow(xx[i], cmap='gray', vmin=0, vmax=1)
 
-    if checkpoint_dir is not None:
-        fig_name = osp.join(checkpoint_dir, 'progress_fig_{}.png'.format(global_step))
-        fig.savefig(fig_name, dpi=dpi)
-        plt.close(fig)
+        # reconstructions with marked steps
+        for i, ax in enumerate(axes[1]):
+            ax.imshow(pred_canvas[i], cmap='gray', vmin=0, vmax=1)
+            for j, c in zip(xrange(self.n_steps), self._BBOX_COLORS):
+                if pres[i, j] > .5:
+                    self._rect(ax, w[i, j], c)
 
+        # glimpses
+        for i, ax_row in enumerate(axes[2:]):
+            for j, ax in enumerate(ax_row):
+                ax.imshow(pres[j, i] * pred_crop[j, i], cmap='gray')
+                ax.set_title('{:d} with p({:d}) = {:.02f}'.format(int(pres[j, i]), i + 1, prob[j, i]),
+                             fontsize=4 * self.fig_scale)
 
-def make_seq_fig(air, sess, checkpoint_dir=None, global_step=None, n_samples=5, p_threshold=.5):
-    # TODO: implement checkpoint_dir, global_step and n_samples
-    gt, presence, w, imgs = sess.run([air.obs, air.presence, air.where, air.canvas])
-    nt = imgs.shape[0]
-    fig, axes = plt.subplots(2, nt, figsize=(nt*2, 4), sharex=True, sharey=True)
-    axes = axes.reshape((2, nt))
-    n = np.random.randint(imgs.shape[1])
-    colors = 'brgc'
+                if pres[j, i] > .5:
+                    for spine in 'bottom top left right'.split():
+                        ax.spines[spine].set_color(self._BBOX_COLORS[i])
+                        ax.spines[spine].set_linewidth(2.)
 
-    for t, ax in enumerate(axes.T):
-        ax[0].imshow(gt[t, n], cmap='gray', vmin=0., vmax=1.)
+                ax_row[0].set_ylabel('glimpse #{}'.format(i + 1))
 
-        pres_time = presence[t, n, :, 0]
-        ps = ', '.join(['{:.2f}'.format(pp) for pp in pres_time])
-        ax[1].set_title(ps)
-        ax[1].imshow(imgs[t, n], cmap='gray', vmin=0., vmax=1.)
-        for a in ax:
+        for ax in axes.flatten():
+            ax.xaxis.set_ticks([])
+            ax.yaxis.set_ticks([])
+
+        axes[0, 0].set_ylabel('ground-truth')
+        axes[1, 0].set_ylabel('reconstruction')
+
+        self._maybe_save_fig(fig, global_step, save, 'still_fig')
+
+    def plot_seq(self, global_step=None, save=True):
+
+        xx, pred_canvas, pred_crop, prob, pres, w = self._air_outputs(n_samples=self.seq_n_samples)
+        fig, axes = self._make_fig(2 * self.seq_n_samples, self.n_timesteps)
+        axes = axes.reshape((2 * self.seq_n_samples, self.n_timesteps))
+        n = np.random.randint(xx.shape[1])
+
+        for t, ax in enumerate(axes.T):
+            for n in xrange(self.seq_n_samples):
+                pres_time = pres[t, n, :]
+                ax[2 * n].imshow(xx[t, n], cmap='gray', vmin=0., vmax=1.)
+                ax[2 * n + 1].set_title(str(int(np.round(pres_time.sum()))), fontsize=6 * self.fig_scale)
+                ax[2 * n + 1].imshow(pred_canvas[t, n], cmap='gray', vmin=0., vmax=1.)
+                for i, (p, c) in enumerate(zip(pres_time, self._BBOX_COLORS)):
+                    if p > .5:
+                        self._rect(ax[2 * n + 1], w[t, n, i], c, line_width=1.)
+
+        for n in xrange(self.seq_n_samples):
+            axes[2 * n, 0].set_ylabel('gt #{:d}'.format(n))
+            axes[2 * n + 1, 0].set_ylabel('rec #{:d}'.format(n))
+
+        for a in axes.flatten():
             a.grid(False)
             a.set_xticks([])
             a.set_yticks([])
 
-        for i, (p, c) in enumerate(zip(np.greater(pres_time, p_threshold), colors)):
-            if p:
-                rect_stn(ax[1], 48, 48, w[t, n, i], c, line_width=1)
+        self._maybe_save_fig(fig, global_step, save, 'seq_fig')
 
-    axes[0, 0].set_ylabel('gt')
-    axes[1, 0].set_ylabel('reconstruction')
+    def _maybe_save_fig(self, fig, global_step, save, root_name):
+        if save and self.checkpoint_dir is not None:
+            fig_name = osp.join(self.checkpoint_dir, '{}_{}.png'.format(root_name, global_step))
+            fig.savefig(fig_name, dpi=self.dpi)
+            plt.close(fig)
+
+    def _air_outputs(self, n_samples=None, single_timestep=False):
+
+        if n_samples is None:
+            n_samples = self.n_samples
+
+        if not getattr(self, '_air_tensors', None):
+            names = 'canvas glimpse posterior_step_prob presence where'.split()
+            tensors = [getattr(self.air, 'resampled_' + name, getattr(self.air, name)) for name in names]
+            tensors[2] = tensors[2][..., 1:]
+            self._air_tensors = [self.air.obs] + tensors
+
+        res = self.sess.run(self._air_tensors)
+        bs = np.random.choice(self.air.batch_size, size=n_samples, replace=False)
+        ts = slice(None)
+        if single_timestep:
+            n_timesteps = res[0].shape[0]
+            ts = np.random.choice(n_timesteps, size=self.n_samples, replace=True)
+
+        for i, r in enumerate(res):
+            if self.with_time:
+                res[i] = r[ts, bs]
+            else:
+                res[i] = r[bs]
+
+            if res[i].shape[-1] == 1:
+                res[i] = res[i][..., 0]
+
+        return res
+
+    def _rect(self, ax, coords, color, line_width=2.):
+        rect_stn(ax, self.width, self.height, coords, color, line_width=2.)
+
+    def _make_fig(self, h, w, *args, **kwargs):
+        figsize = self.fig_scale * np.asarray((w, h))
+        return plt.subplots(h, w, figsize=figsize)
 
 
 def make_logger(air, sess, summary_writer, train_tensor, n_train_samples, test_tensor, n_test_samples):
@@ -127,7 +183,7 @@ def make_logger(air, sess, summary_writer, train_tensor, n_train_samples, test_t
     skipped = False
     for k, v in additional_exprs.iteritems():
         try:
-                exprs[k] = getattr(air, v)
+            exprs[k] = getattr(air, v)
         except AttributeError:
             if not skipped:
                 skipped = True
@@ -173,9 +229,11 @@ def make_expr_logger(sess, writer, num_batches, expr_dict, name, data_dict=None,
     if measure_time:
         log_string += ', eval time = {:.4}s'
 
-        def make_log_string(itr, l, t): return log_string.format(itr, t, **l)
+        def make_log_string(itr, l, t):
+            return log_string.format(itr, t, **l)
     else:
-        def make_log_string(itr, l, t): return log_string.format(itr, **l)
+        def make_log_string(itr, l, t):
+            return log_string.format(itr, **l)
 
     def log(itr, l, t):
         try:
@@ -243,14 +301,13 @@ def log_norm(expr_list, name):
     norm = 0.
     for e in nest.flatten(expr_list):
         n_elems += tf.reduce_prod(tf.shape(e))
-        norm += tf.reduce_sum(e**2)
+        norm += tf.reduce_sum(e ** 2)
     norm /= tf.to_float(n_elems)
     tf.summary.scalar(name, norm)
     return norm
 
 
 def log_values(writer, itr, tags=None, values=None, dict=None):
-
     if dict is not None:
         assert tags is None and values is None
         tags = dict.keys()

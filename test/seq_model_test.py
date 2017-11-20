@@ -51,7 +51,7 @@ class SeqModelTest(unittest.TestCase):
 
         print 'Constructed model'
 
-        cls.train_step = cls.air.train_step(cls.learning_rate, 1e-4, nums=cls.nums)
+        cls.train_step = cls.air.train_step(cls.learning_rate, nums=cls.nums)
         cls.loss = cls.air.nelbo / cls.air.n_timesteps
         print 'Computed gradients'
 
@@ -72,7 +72,7 @@ class SeqModelTest(unittest.TestCase):
 
         print 'loss = {}'.format(l)
         self.assertLess(l, 70.)
-        self.assertGreater(l, 40.)
+        self.assertGreater(l, 39.)
 
     def test_backward(self):
         sess = tf.Session()
