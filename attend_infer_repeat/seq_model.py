@@ -22,6 +22,8 @@ class SeqAIRModel(object):
     :param analytic_kl_expectation: bool, computes expectation over conditional-KL analytically if True
     """
 
+    time_transition_class = None
+
     def __init__(self, obs, max_steps, glimpse_size,
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
@@ -111,6 +113,11 @@ class SeqAIRModel(object):
         rnn_hidden_state = transition.zero_state(self.effective_batch_size, tf.float32)
         rnn_hidden_state = stack_states([rnn_hidden_state] * self.max_steps)
 
+        time_state = 0.
+        if self.time_transition_class is not None:
+            self.time_transition = self.time_transition_class(self.cell._n_hidden)
+            time_state = self.time_transition.initial_state(self.effective_batch_size, tf.float32, trainable=True)
+
         tas = []
 
         def make_ta(shape=[], usual_shape=True):
@@ -145,12 +152,12 @@ class SeqAIRModel(object):
         t = tf.constant(0, dtype=tf.int32, name='time')
 
         cumulative_imp_weights = tf.ones((self.batch_size, self.iw_samples), dtype=tf.float32)
-        loop_vars = [t, self.used_obs, initial_state, rnn_hidden_state, cumulative_imp_weights] + tas
+        loop_vars = [t, self.used_obs, initial_state, rnn_hidden_state, time_state, cumulative_imp_weights] + tas
 
         def cond(t, img_seq, *args):
             return t < tf.shape(img_seq)[0]
             
-        def body(t, img_seq, state, rnn_hidden_state, cumulative_imp_weights, *tas):
+        def body(t, img_seq, state, rnn_hidden_state, time_state, cumulative_imp_weights, *tas):
             # parse inputs
             img = img_seq[t]
 
@@ -192,6 +199,16 @@ class SeqAIRModel(object):
                 hidden_outputs.append(hidden_output)
                 hidden_states.append(hidden_state[-1])
 
+            # time transition
+            inner_rnn_state = hidden_state[-1]
+            # handle transition between timesteps by a different RNN
+            if self.time_transition_class is not None:
+                print 'time_transition!: ', self.time_transition
+                flat_rnn_state = nest.flatten(inner_rnn_state)
+                inpt = tf.concat(flat_rnn_state, -1)
+                flat_rnn_state[-1], time_state = self.time_transition(inpt, time_state)
+                inner_rnn_state = nest.pack_sequence_as(inner_rnn_state, flat_rnn_state)
+
             # merge & flatten states
             hidden_outputs = stack_states(hidden_outputs)
             rnn_hidden_state = stack_states(hidden_states)
@@ -201,7 +218,7 @@ class SeqAIRModel(object):
             num_step_per_sample = tf.to_float(tf.reduce_sum(tf.squeeze(presence), -1))
 
             # we overwrite only the hidden state of the inner rnn
-            inner_state[-1] = hidden_state[-1]
+            inner_state[-1] = inner_rnn_state
             state = [what, where, presence], inner_state
 
             # #################################################
@@ -265,12 +282,12 @@ class SeqAIRModel(object):
 
             # Increment time index
             t += 1
-            return [t, img_seq, state, rnn_hidden_state, cumulative_imp_weights] + tas
+            return [t, img_seq, state, rnn_hidden_state, time_state, cumulative_imp_weights] + tas
                 
         res = tf.while_loop(cond, body, loop_vars, parallel_iterations=self.batch_size)
         self.final_state = res[2]
-        self.cumulative_imp_weights = res[4]
-        tas = res[5:]
+        self.cumulative_imp_weights = res[5]
+        tas = res[6:]
 
         # TODO: prettify
         self.output_names = 'canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \

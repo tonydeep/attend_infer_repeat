@@ -23,6 +23,7 @@ tf.flags.DEFINE_boolean('condition_on_latents', False, '')
 tf.flags.DEFINE_boolean('condition_on_rnn_output', False, '')
 tf.flags.DEFINE_string('opt', '', '')
 tf.flags.DEFINE_string('transition', 'LSTM', '')
+tf.flags.DEFINE_string('time_transition', None, '')
 
 
 def load(img, num):
@@ -33,12 +34,16 @@ def load(img, num):
     n_layers = 2
     n_hiddens = [n_hidden] * n_layers
 
+    transition = getattr(snt, f.transition, None)
+    time_transition = getattr(snt, f.time_transition, None)
+
     class SeqAIRwithVIMCO(SeqAIRonMNIST, KLBySamplingMixin):
         importance_resample = f.importance_resample
         init_step_success_prob = f.init_step_success_prob
         n_anneal_steps_loss = f.n_anneal_steps_loss
         where_prior_scale = f.where_prior_scale
-        transition_class = getattr(snt, f.transition)
+        transition_class = transition
+        time_transition_class = time_transition
 
     air = SeqAIRwithVIMCO(img,
                       max_steps=f.n_steps_per_image,
