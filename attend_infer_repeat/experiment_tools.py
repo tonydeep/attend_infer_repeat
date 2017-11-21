@@ -23,7 +23,7 @@ def json_load(path):
         return json.load(f)
 
 
-def init_checkpoint(checkpoint_dir, data_config, model_config, restart):
+def init_checkpoint(checkpoint_dir, data_config, model_config, resume):
     """
     1) try mk checkpoint_dir
     2) if continue:
@@ -45,8 +45,8 @@ def init_checkpoint(checkpoint_dir, data_config, model_config, restart):
     # check if the experiment folder exists and create if not
     checkpoint_dir_exists = os.path.exists(checkpoint_dir)
     if not checkpoint_dir_exists:
-        if restart:
-            raise ValueError("Can't restart when the checkpoint dir '{}' doesn't exist.".format(checkpoint_dir))
+        if resume:
+            raise ValueError("Can't resume when the checkpoint dir '{}' doesn't exist.".format(checkpoint_dir))
         else:
             os.makedirs(checkpoint_dir)
 
@@ -56,32 +56,32 @@ def init_checkpoint(checkpoint_dir, data_config, model_config, restart):
     experiment_folders = [f for f in os.listdir(checkpoint_dir) if not f.startswith('_')]
     if experiment_folders:
         experiment_folder = int(sorted(experiment_folders, key=lambda x: int(x))[-1])
-        if not restart:
+        if not resume:
             experiment_folder += 1
     else:
-        if restart:
-            raise ValueError("Can't restart since no experiments were run before in checkpoint dir '{}'.".format(checkpoint_dir))
+        if resume:
+            raise ValueError("Can't resume since no experiments were run before in checkpoint dir '{}'.".format(checkpoint_dir))
         else:
             experiment_folder = 1
 
     experiment_folder = os.path.join(checkpoint_dir, str(experiment_folder))
-    if not restart:
+    if not resume:
         os.mkdir(experiment_folder)
 
     flag_path = os.path.join(experiment_folder, FLAG_FILE)
-    restart_checkpoint = None
+    resume_checkpoint = None
 
     _load_flags(model_config, data_config)
     flags = parse_flags()
     assert_all_flags_parsed()
 
-    if restart:
+    if resume:
         restored_flags = json_load(flag_path)
         flags.update(restored_flags)
         _restore_flags(flags)
         model_files = find_model_files(experiment_folder)
         if model_files:
-            restart_checkpoint = model_files[max(model_files.keys())]
+            resume_checkpoint = model_files[max(model_files.keys())]
 
     else:
         # store flags
@@ -99,7 +99,7 @@ def init_checkpoint(checkpoint_dir, data_config, model_config, restart):
             dst = os.path.join(experiment_folder, file_name)
             shutil.copy(src, dst)
 
-    return experiment_folder, flags, restart_checkpoint
+    return experiment_folder, flags, resume_checkpoint
 
 
 def extract_itr_from_modelfile(model_path):
@@ -228,7 +228,6 @@ def is_notebook():
 
 def optimizer_from_string(opt_string, build=True):
 
-
     res = re.search(r'([a-z|A-Z]+)\(?(.*)\)?', opt_string).groups()
     opt_name = res[0]
 
@@ -244,6 +243,7 @@ def optimizer_from_string(opt_string, build=True):
     else:
         opt = opt(**opt_args)
     return opt
+
 
 def get_session():
     config = tf.ConfigProto()
@@ -269,7 +269,7 @@ if __name__ == '__main__':
     # sys.argv.append('--model_flag=-1')
     # print sys.argv
 
-    experiment_folder, loaded_flags, checkpoint_dir = init_checkpoint(checkpoint_dir, data_config, model_config, restart=False)
+    experiment_folder, loaded_flags, checkpoint_dir = init_checkpoint(checkpoint_dir, data_config, model_config, resume=False)
 
     print experiment_folder
     print loaded_flags

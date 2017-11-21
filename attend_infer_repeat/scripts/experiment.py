@@ -7,7 +7,12 @@ from os import path as osp
 import tensorflow as tf
 
 from evaluation import ProgressFig, make_logger
-from experiment_tools import load, init_checkpoint, parse_flags, print_flags, set_flags_if_notebook
+from experiment_tools import load, init_checkpoint, parse_flags, print_flags, set_flags_if_notebook, is_notebook
+
+import matplotlib.pyplot as plt
+
+
+# In[ ]:
 
 import sys
 sys.path.append('../')
@@ -29,7 +34,8 @@ flags.DEFINE_integer('summary_every', 1000, '')
 flags.DEFINE_integer('log_every', 5000, '')
 flags.DEFINE_integer('save_every', 5000, '')
 flags.DEFINE_integer('max_train_iter', int(3 * 1e5), '')
-flags.DEFINE_boolean('restart', False, '')
+flags.DEFINE_boolean('resume', False, '')
+flags.DEFINE_boolean('log_at_start', False, '')
 
 flags.DEFINE_float('eval_size_fraction', .01, '')
 
@@ -38,6 +44,7 @@ flags.DEFINE_float('eval_size_fraction', .01, '')
 
 
 set_flags_if_notebook(
+#     data_config='configs/static_mnist_data.py',
     seq_len=3,
     n_steps_per_image=4,
     n_iw_samples=5,
@@ -49,7 +56,7 @@ set_flags_if_notebook(
     importance_resample=False,
 #     
     condition_on_latents=True,
-    transition='VanillaRNN'
+    transition='VanillaRNN',
 )
 
 # Parse flags
@@ -61,7 +68,7 @@ F = flags.FLAGS
 
 # Prepare enviornment
 logdir = osp.join(F.results_dir, F.run_name)
-logdir, flags, restart_checkpoint = init_checkpoint(logdir, F.data_config, F.model_config, F.restart)
+logdir, flags, resume_checkpoint = init_checkpoint(logdir, F.data_config, F.model_config, F.resume)
 checkpoint_name = osp.join(logdir, 'model.ckpt')
 
 
@@ -90,9 +97,9 @@ sess.run(tf.global_variables_initializer())
 # In[ ]:
 
 saver = tf.train.Saver()
-if restart_checkpoint is not None:
-    print "Restoring from '{}'",format(restart_checkpoint)
-    saver.restore(sess, restart_checkpoint)
+if resume_checkpoint is not None:
+    print "Restoring checkpoint from '{}'".format(resume_checkpoint)
+    saver.restore(sess, resume_checkpoint)
 
 
 # In[ ]:
@@ -118,10 +125,11 @@ progress_fig = ProgressFig(air, sess, logdir)
 train_itr = sess.run(global_step)
 print 'Starting training at iter = {}'.format(train_itr)
 
-if train_itr == 0:
-    log(0)
-    progress_fig.plot_still(train_itr)
-    progress_fig.plot_seq(train_itr)
+
+if F.log_at_start or train_itr == 0:
+    log(train_itr)
+    if not is_notebook():
+        progress_fig.plot_all(train_itr)
 
 while train_itr < F.max_train_iter:
 
@@ -136,16 +144,10 @@ while train_itr < F.max_train_iter:
 
     if train_itr % F.save_every == 0:
         saver.save(sess, checkpoint_name, global_step=train_itr)
-        progress_fig.plot_still(train_itr)
-        progress_fig.plot_seq(train_itr)
+        progress_fig.plot_all(train_itr)
 
 
 # In[ ]:
 
-progress_fig.plot_seq(save=False)
-
-
-# In[ ]:
-
-progress_fig.plot_still(save=False)
+# progress_fig.plot_all(save=False)
 

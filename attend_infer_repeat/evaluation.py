@@ -47,6 +47,11 @@ class ProgressFig(object):
         self.with_time = self.n_timesteps is not None
         self.height, self.width = air.img_size[:2]
 
+    def plot_all(self, global_step=None, save=True):
+        self.plot_still(global_step, save)
+        if self.with_time:
+            self.plot_seq(global_step, save)
+
     def plot_still(self, global_step=None, save=True):
 
         xx, pred_canvas, pred_crop, prob, pres, w = self._air_outputs(single_timestep=True)

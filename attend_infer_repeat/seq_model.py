@@ -307,7 +307,7 @@ class SeqAIRModel(object):
 
         self.baseline = self._make_baseline(self.cumulative_elbo_per_sample)
 
-        num_steps_posterior = NumStepsDistribution(self.posterior_step_prob)
+        num_steps_posterior = NumStepsDistribution(self.presence_prob[..., 0])
         posterior_num_steps_log_prob = num_steps_posterior.log_prob(self.num_step_per_sample)
         posterior_num_steps_log_prob = tf.reduce_sum(posterior_num_steps_log_prob, 0)
 
