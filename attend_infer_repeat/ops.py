@@ -1,5 +1,6 @@
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
+from tensorflow.python.util import nest
 
 
 class Loss(object):
@@ -199,4 +200,14 @@ def tile_input_for_iwae(tensor, iw_samples, with_time=False):
     tensor = tf.tile(tensor, tiles)
     tensor = tf.reshape(tensor, shape)
     return tensor
+
+
+def stack_states(states):
+    orig_state = states[0]
+    states = [nest.flatten(s) for s in states]
+    states = zip(*states)
+    for i, state in enumerate(states):
+        states[i] = tf.stack(state, 1)
+    states = nest.pack_sequence_as(orig_state, states)
+    return states
 

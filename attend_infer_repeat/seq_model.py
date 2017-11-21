@@ -2,6 +2,7 @@ import functools
 
 import tensorflow as tf
 from tensorflow.contrib.distributions import Normal
+from tensorflow.python.util import nest
 
 from cell import AIRCell
 from evaluation import gradient_summaries
@@ -9,7 +10,7 @@ from prior import NumStepsDistribution
 from modules import AIRDecoder
 from elbo import kl_by_sampling
 from grad import VIMCOEstimator
-from ops import tile_input_for_iwae, gather_axis
+from ops import tile_input_for_iwae, gather_axis, stack_states
 
 
 # TODO: implement FIVO & per-timestep VIMCO for FIVO
@@ -25,6 +26,7 @@ class SeqAIRModel(object):
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
                  output_std=1., output_multiplier=1., iw_samples=1,
+                 condition_on_rnn_output=False, condition_on_prev=False,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -51,6 +53,10 @@ class SeqAIRModel(object):
         self.output_std = output_std
         self.output_multiplier = output_multiplier
         self.iw_samples = iw_samples
+
+        self.condition_on_rnn_output = condition_on_rnn_output
+        self.condition_on_prev = condition_on_prev
+
         self.debug = debug
 
         shape = self.obs.get_shape().as_list()
@@ -85,10 +91,13 @@ class SeqAIRModel(object):
         self.scale_prior, self.shift_prior, self.what_prior = self._make_priors()
 
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
+
+        condition_on_inpt = self.condition_on_prev or self.condition_on_rnn_output
         air_cell = AIRCell(self.img_size, self.glimpse_size, self.n_what, transition,
-                            input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                            debug=self.debug,
-                            **cell_kwargs)
+                           input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
+                           condition_on_inpt=condition_on_inpt,
+                           debug=self.debug,
+                           **cell_kwargs)
 
         self.cell = air_cell
 
@@ -98,6 +107,9 @@ class SeqAIRModel(object):
         presence = tf.zeros((1, 1, 1))
         z0 = [tf.tile(i, (self.effective_batch_size, self.max_steps, 1)) for i in what, where, presence]
         initial_state = z0, self.cell.initial_state(self.used_obs[0])[1:]
+
+        rnn_hidden_state = transition.zero_state(self.effective_batch_size, tf.float32)
+        rnn_hidden_state = stack_states([rnn_hidden_state] * self.max_steps)
 
         tas = []
 
@@ -133,12 +145,12 @@ class SeqAIRModel(object):
         t = tf.constant(0, dtype=tf.int32, name='time')
 
         cumulative_imp_weights = tf.ones((self.batch_size, self.iw_samples), dtype=tf.float32)
-        loop_vars = [t, self.used_obs, initial_state, cumulative_imp_weights] + tas
-        
+        loop_vars = [t, self.used_obs, initial_state, rnn_hidden_state, cumulative_imp_weights] + tas
+
         def cond(t, img_seq, *args):
             return t < tf.shape(img_seq)[0]
             
-        def body(t, img_seq, state, cumulative_imp_weights, *tas):
+        def body(t, img_seq, state, rnn_hidden_state, cumulative_imp_weights, *tas):
             # parse inputs
             img = img_seq[t]
 
@@ -161,16 +173,28 @@ class SeqAIRModel(object):
             #         objects here can only disappear, not appear
             #     b) discover new objects based on the state
             #     those two should use different rnns and results should be rearranged (pushed to the bottom of a vector)
-            hidden_outputs = []
+            hidden_outputs, hidden_states = [], []
             for i in xrange(self.max_steps):
-                z_tm1_per_object = [z[..., i, :] for z in z_tm1]
-                hidden_output, hidden_state = self.cell(z_tm1_per_object, hidden_state)
+                rnn_inpt = []
+                if self.condition_on_prev:
+                    z_tm1_per_object = [z[..., i, :] for z in z_tm1]
+                    # mask out absent objects
+                    pres = z_tm1_per_object[-1]
+                    z_tm1_per_object = [z * pres for z in z_tm1_per_object]
+                    rnn_inpt.extend(z_tm1_per_object)
+                if self.condition_on_rnn_output:
+                    rnn_inpt.append(rnn_hidden_state[..., i, :])
+
+                if not rnn_inpt:
+                    rnn_inpt = None
+
+                hidden_output, hidden_state = self.cell(rnn_inpt, hidden_state)
                 hidden_outputs.append(hidden_output)
+                hidden_states.append(hidden_state[-1])
 
             # merge & flatten states
-            hidden_outputs = zip(*hidden_outputs)
-            for i, ho in enumerate(hidden_outputs):
-                hidden_outputs[i] = tf.stack(ho, 1)
+            hidden_outputs = stack_states(hidden_outputs)
+            rnn_hidden_state = stack_states(hidden_states)
 
             # extract latents
             what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence = hidden_outputs
@@ -241,12 +265,12 @@ class SeqAIRModel(object):
 
             # Increment time index
             t += 1
-            return [t, img_seq, state, cumulative_imp_weights] + tas
+            return [t, img_seq, state, rnn_hidden_state, cumulative_imp_weights] + tas
                 
         res = tf.while_loop(cond, body, loop_vars, parallel_iterations=self.batch_size)
         self.final_state = res[2]
-        self.cumulative_imp_weights = res[3]
-        tas = res[4:]
+        self.cumulative_imp_weights = res[4]
+        tas = res[5:]
 
         # TODO: prettify
         self.output_names = 'canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \

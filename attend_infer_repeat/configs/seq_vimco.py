@@ -18,8 +18,9 @@ tf.flags.DEFINE_float('where_prior_scale', 1., '')
 tf.flags.DEFINE_integer('n_iw_samples', 5, '')
 tf.flags.DEFINE_integer('n_steps_per_image', 3, '')
 tf.flags.DEFINE_boolean('importance_resample', False, '')
-tf.flags.DEFINE_boolean('condition_on_latents', False, '')
 tf.flags.DEFINE_boolean('condition_on_prev', False, '')
+tf.flags.DEFINE_boolean('condition_on_latents', False, '')
+tf.flags.DEFINE_boolean('condition_on_rnn_output', False, '')
 tf.flags.DEFINE_string('opt', '', '')
 tf.flags.DEFINE_string('transition', 'LSTM', '')
 
@@ -52,6 +53,7 @@ def load(img, num):
                       iw_samples=f.n_iw_samples,
                       output_multiplier=f.output_multiplier,
                       condition_on_prev=f.condition_on_prev,
+                      condition_on_rnn_output=f.condition_on_rnn_output,
                       condition_on_latents=f.condition_on_latents)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)

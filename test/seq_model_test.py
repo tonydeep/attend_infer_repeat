@@ -45,6 +45,9 @@ class SeqModelTest(unittest.TestCase):
         print 'Building AIR'
         cls.modules = make_modules()
         cls.air = AIRModelWithPriors(cls.imgs, cls.n_steps_per_image, cls.crop_size, cls.n_what,
+                                     condition_on_prev=True,
+                                     condition_on_rnn_output=True,
+                                     condition_on_latents=True,
                                      iw_samples=cls.iw_samples, **cls.modules)
         cls.rnn_outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.cell.output_names})
         cls.outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.output_names})

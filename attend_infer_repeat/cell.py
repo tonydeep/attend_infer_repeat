@@ -21,7 +21,8 @@ class AIRCell(snt.RNNCore):
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                 condition_on_latents=False, condition_on_prev=False, discrete_steps=True, debug=False):
+                 condition_on_latents=False, discrete_steps=True,
+                 condition_on_inpt=False, debug=False):
         """Creates the cell
 
         :param img_size: int tuple, size of the image
@@ -46,8 +47,8 @@ class AIRCell(snt.RNNCore):
         self._n_hidden = self._transition.output_size[0]
 
         self._condition_on_latents = condition_on_latents
-        self._condition_on_prev = condition_on_prev
         self._sample_presence = discrete_steps
+        self._condition_on_inpt = condition_on_inpt
         self._debug = debug
 
         with self._enter_variable_scope():
@@ -105,7 +106,6 @@ class AIRCell(snt.RNNCore):
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
-        what_tm1, where_tm1, presence_tm1 = inpt
         img_flat, what_code, where_code, presence, hidden_state = state
 
         img_inpt = img_flat
@@ -113,11 +113,23 @@ class AIRCell(snt.RNNCore):
 
         transition_inpt = self._input_encoder(img)
         with tf.variable_scope('rnn_inpt'):
-            transition_inpt = conditional_concat(self._condition_on_latents, transition_inpt, what_code, where_code, presence)
+            transition_inpt = [transition_inpt]
+            if inpt is not None and self._condition_on_inpt:
+                transition_inpt += nest.flatten(inpt)
+
+            if self._condition_on_latents:
+                transition_inpt += [what_code, where_code, presence]
+
+            if len(transition_inpt) > 1:
+                transition_inpt = tf.concat(transition_inpt, -1)
+            else:
+                transition_inpt = transition_inpt[0]
+
+            print 'transition_inpt', transition_inpt
+
             hidden_output, hidden_state = self._transition(transition_inpt, hidden_state)
 
-        where_inpt = conditional_concat(self._condition_on_prev, hidden_output, where_tm1)
-        where_param = self._transform_estimator(where_inpt)
+        where_param = self._transform_estimator(hidden_output)
         where_distrib = NormalWithSoftplusScale(*where_param,
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
         where_loc, where_scale = where_distrib.loc, where_distrib.scale
@@ -126,8 +138,7 @@ class AIRCell(snt.RNNCore):
         cropped = self._spatial_transformer(img, where_code)
 
         with tf.variable_scope('presence'):
-            presence_inpt = conditional_concat(self._condition_on_prev, hidden_output, presence_tm1)
-            presence_logit = self._steps_predictor(presence_inpt)
+            presence_logit = self._steps_predictor(hidden_output)
             presence_prob = tf.nn.sigmoid(presence_logit)
 
             if self._sample_presence:
@@ -140,8 +151,7 @@ class AIRCell(snt.RNNCore):
                 presence = presence_prob
 
         flat_crop = snt.BatchFlatten()(cropped)
-        what_inpt = conditional_concat(self._condition_on_prev, flat_crop, what_tm1)
-        what_params = self._glimpse_encoder(what_inpt)
+        what_params = self._glimpse_encoder(flat_crop)
         what_distrib = self._what_distrib(what_params)
         what_loc, what_scale = what_distrib.loc, what_distrib.scale
         what_code = what_distrib.sample()
