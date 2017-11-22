@@ -22,7 +22,7 @@ class AIRCell(snt.RNNCore):
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                  condition_on_latents=False, discrete_steps=True,
-                 condition_on_inpt=False, debug=False):
+                 condition_on_inpt=False, transition_only_on_object=False, debug=False):
         """Creates the cell
 
         :param img_size: int tuple, size of the image
@@ -50,6 +50,7 @@ class AIRCell(snt.RNNCore):
         self._sample_presence = discrete_steps
         self._condition_on_inpt = condition_on_inpt
         self._debug = debug
+        self._transition_only_on_object = transition_only_on_object
 
         with self._enter_variable_scope():
 
@@ -156,8 +157,14 @@ class AIRCell(snt.RNNCore):
 
         output = [what_code, what_loc, what_scale, where_code, where_loc, where_scale,
                   presence_prob, presence]
-        state = [img_flat, what_code, where_code, presence, hidden_state]
-        return output, state
+        new_state = [img_flat, what_code, where_code, presence, hidden_state]
+
+        if self._transition_only_on_object:
+            # if the object is not present, we don't update the state
+            bool_pres = tf.cast(presence, bool)
+            new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
+
+        return output, new_state
 
 
 class SeqAIRCell(snt.RNNCore):

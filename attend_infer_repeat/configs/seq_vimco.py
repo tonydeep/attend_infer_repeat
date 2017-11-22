@@ -22,6 +22,7 @@ tf.flags.DEFINE_boolean('importance_resample', False, '')
 tf.flags.DEFINE_boolean('condition_on_prev', False, '')
 tf.flags.DEFINE_boolean('condition_on_latents', False, '')
 tf.flags.DEFINE_boolean('condition_on_rnn_output', False, '')
+tf.flags.DEFINE_boolean('transition_only_on_object', False, '')
 tf.flags.DEFINE_boolean('prior_around_prev', False, '')
 tf.flags.DEFINE_string('opt', '', '')
 tf.flags.DEFINE_string('transition', 'LSTM', '')
@@ -63,7 +64,8 @@ def load(img, num):
                       condition_on_prev=f.condition_on_prev,
                       condition_on_rnn_output=f.condition_on_rnn_output,
                       condition_on_latents=f.condition_on_latents,
-                      prior_around_prev=f.prior_around_prev)
+                      prior_around_prev=f.prior_around_prev,
+                      transition_only_on_object=f.transition_only_on_object)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)
     if f.opt:
