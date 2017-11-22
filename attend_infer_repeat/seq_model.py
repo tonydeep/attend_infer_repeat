@@ -209,6 +209,8 @@ class SeqAIRModel(object):
                 flat_rnn_state[-1], time_state = self.time_transition(inpt, time_state)
                 inner_rnn_state = nest.pack_sequence_as(inner_rnn_state, flat_rnn_state)
 
+
+
             # merge & flatten states
             hidden_outputs = stack_states(hidden_outputs)
             rnn_hidden_state = stack_states(hidden_states)
@@ -231,7 +233,7 @@ class SeqAIRModel(object):
             likelihood_per_pixel = Normal(canvas, self.output_std).log_prob(img)
             likelihood = tf.reduce_sum(likelihood_per_pixel, (-2, -1))
 
-            num_steps_posterior = NumStepsDistribution(tf.squeeze(presence_prob))
+            num_steps_posterior = NumStepsDistribution(presence_prob[..., 0])
             posterior_step_probs = num_steps_posterior.prob()
 
             ax = where_loc.shape.ndims - 1
@@ -242,7 +244,7 @@ class SeqAIRModel(object):
             what_posterior = Normal(what_loc, what_scale)
 
             ## KLs
-            ordered_step_prob = tf.squeeze(presence)
+            ordered_step_prob = presence[..., 0]
 
             ### KL what
             what_kl = kl_by_sampling(what_posterior, self.what_prior, what)

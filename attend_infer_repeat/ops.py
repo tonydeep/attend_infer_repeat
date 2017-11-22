@@ -211,3 +211,8 @@ def stack_states(states):
     states = nest.pack_sequence_as(orig_state, states)
     return states
 
+def maybe_getattr(obj, name):
+    attr = None
+    if name is not None:
+        attr = getattr(obj, name, None)
+    return attr

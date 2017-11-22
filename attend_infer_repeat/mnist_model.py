@@ -38,6 +38,7 @@ class ImportanceWeightedNVILEstimatorWithBaseline(ImportanceWeightedNVILEstimato
 
 class MNISTPriorMixin(AIRPriorMixin, LogLikelihoodMixin):
     init_step_success_prob = 1. - 1e-7
+    final_step_success_prob = 1e-5
 
     def _geom_success_prob(self, **kwargs):
 
@@ -45,7 +46,7 @@ class MNISTPriorMixin(AIRPriorMixin, LogLikelihoodMixin):
         steps_div = 1e4
         anneal_steps = 1e5
         global_step = tf.train.get_or_create_global_step()
-        steps_prior_success_prob = anneal_weight(self.init_step_success_prob, 1e-5, 'exp', global_step,
+        steps_prior_success_prob = anneal_weight(self.init_step_success_prob, self.final_step_success_prob, 'exp', global_step,
                                                      anneal_steps, hold_init, steps_div)
         self.steps_prior_success_prob = steps_prior_success_prob
         return self.steps_prior_success_prob
