@@ -48,6 +48,7 @@ class SeqModelTest(unittest.TestCase):
                                      condition_on_prev=True,
                                      condition_on_rnn_output=True,
                                      condition_on_latents=True,
+                                     prior_around_prev=True,
                                      iw_samples=cls.iw_samples, **cls.modules)
         cls.rnn_outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.cell.output_names})
         cls.outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.output_names})

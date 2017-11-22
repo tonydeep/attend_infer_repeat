@@ -22,6 +22,7 @@ tf.flags.DEFINE_boolean('importance_resample', False, '')
 tf.flags.DEFINE_boolean('condition_on_prev', False, '')
 tf.flags.DEFINE_boolean('condition_on_latents', False, '')
 tf.flags.DEFINE_boolean('condition_on_rnn_output', False, '')
+tf.flags.DEFINE_boolean('prior_around_prev', False, '')
 tf.flags.DEFINE_string('opt', '', '')
 tf.flags.DEFINE_string('transition', 'LSTM', '')
 tf.flags.DEFINE_string('time_transition', None, '')
@@ -37,7 +38,6 @@ def load(img, num):
 
     transition = maybe_getattr(snt, f.transition)
     time_transition = maybe_getattr(snt, f.time_transition)
-
 
     class SeqAIRwithVIMCO(SeqAIRonMNIST, KLBySamplingMixin):
         importance_resample = f.importance_resample
@@ -62,7 +62,8 @@ def load(img, num):
                       output_multiplier=f.output_multiplier,
                       condition_on_prev=f.condition_on_prev,
                       condition_on_rnn_output=f.condition_on_rnn_output,
-                      condition_on_latents=f.condition_on_latents)
+                      condition_on_latents=f.condition_on_latents,
+                      prior_around_prev=f.prior_around_prev)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)
     if f.opt:

@@ -28,7 +28,7 @@ class SeqAIRModel(object):
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
                  output_std=1., output_multiplier=1., iw_samples=1,
-                 condition_on_rnn_output=False, condition_on_prev=False,
+                 condition_on_rnn_output=False, condition_on_prev=False, prior_around_prev=False,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -58,6 +58,7 @@ class SeqAIRModel(object):
 
         self.condition_on_rnn_output = condition_on_rnn_output
         self.condition_on_prev = condition_on_prev
+        self.prior_around_prev = prior_around_prev
 
         self.debug = debug
 
@@ -203,13 +204,10 @@ class SeqAIRModel(object):
             inner_rnn_state = hidden_state[-1]
             # handle transition between timesteps by a different RNN
             if self.time_transition_class is not None:
-                print 'time_transition!: ', self.time_transition
                 flat_rnn_state = nest.flatten(inner_rnn_state)
                 inpt = tf.concat(flat_rnn_state, -1)
                 flat_rnn_state[-1], time_state = self.time_transition(inpt, time_state)
                 inner_rnn_state = nest.pack_sequence_as(inner_rnn_state, flat_rnn_state)
-
-
 
             # merge & flatten states
             hidden_outputs = stack_states(hidden_outputs)
@@ -246,15 +244,30 @@ class SeqAIRModel(object):
             ## KLs
             ordered_step_prob = presence[..., 0]
 
+            if self.prior_around_prev:
+                # block gradient path
+                what_tm1, where_tm1 = [tf.stop_gradient(i) for i in z_tm1[:-1]]
+                what_prior = Normal(what_tm1, 1.)
+
+                ax = where_tm1.shape.ndims - 1
+                scale_prior_loc, shift_prior_loc = tf.split(where_tm1, 2, ax)
+                scale_prior = Normal(scale_prior_loc, 1.)
+                shift_prior = Normal(shift_prior_loc, 1.)
+
+            else:
+                what_prior = self.what_prior
+                scale_prior = self.scale_prior
+                shift_prior = self.shift_prior
+
             ### KL what
-            what_kl = kl_by_sampling(what_posterior, self.what_prior, what)
+            what_kl = kl_by_sampling(what_posterior, what_prior, what)
             kl_what = tf.reduce_sum(what_kl, -1) * ordered_step_prob
 
             ### KL where
             ax = where.shape.ndims - 1
             scale, shift = tf.split(where, 2, ax)
-            scale_kl = kl_by_sampling(scale_posterior, self.scale_prior, scale)
-            shift_kl = kl_by_sampling(shift_posterior, self.shift_prior, shift)
+            scale_kl = kl_by_sampling(scale_posterior, scale_prior, scale)
+            shift_kl = kl_by_sampling(shift_posterior, shift_prior, shift)
 
             scale_kl, shift_kl = [tf.reduce_sum(i * ordered_step_prob[..., tf.newaxis], -1) for i in
                                   (scale_kl, shift_kl)]

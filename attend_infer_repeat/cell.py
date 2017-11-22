@@ -125,8 +125,6 @@ class AIRCell(snt.RNNCore):
             else:
                 transition_inpt = transition_inpt[0]
 
-            print 'transition_inpt', transition_inpt
-
             hidden_output, hidden_state = self._transition(transition_inpt, hidden_state)
 
         where_param = self._transform_estimator(hidden_output)
