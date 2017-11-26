@@ -4,7 +4,7 @@ import numpy as np
 from numpy.testing import assert_array_equal, assert_array_almost_equal
 from testing_tools import TFTestBase
 
-from attend_infer_repeat.ops import sample_from_tensor, gather_axis, tile_input_for_iwae
+from attend_infer_repeat.ops import sample_from_tensor, gather_axis, tile_input_for_iwae, select_present, compute_object_ids
 
 
 class SampleFromTensorTest(TFTestBase):
@@ -156,3 +156,86 @@ class TileInputForIwaeTest(TFTestBase):
         for i in xrange(7):
             assert_array_almost_equal(tiled[:, :, i], batch)
 
+
+class TestSelectPresent(TFTestBase):
+    def setUp(self):
+        self.sp = select_present(self.x, self.y)
+        self.spm = lambda bs: select_present(self.x, self.y, bs)
+
+    def test_batch_1d(self):
+        x = np.asarray([[1, 2], [3, 4]])
+        m = np.asarray([0, 1])
+        yy = np.asarray([[3, 4], [1, 2]])
+        y = self.eval(self.sp, x, m)
+        assert_array_equal(y, yy)
+
+    def test_timed_batch_1d(self):
+        x = np.asarray([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        m = np.asarray([[0, 1], [1, 0]])
+        yy = np.asarray([[[3, 4], [1, 2]], [[5, 6], [7, 8]]])
+
+        y = self.eval(self.spm(2), x, m)
+        assert_array_equal(y, yy)
+
+    def test_batch_2d(self):
+        x = np.asarray([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        m = np.asarray([0, 1])
+        yy = np.asarray([[[5, 6], [7, 8]], [[1, 2], [3, 4]]])
+
+        y = self.eval(self.sp, x, m)
+        assert_array_equal(y, yy)
+
+
+class ComputeObjectIdsTest(TFTestBase):
+
+    def test_no_obj(self):
+        last_used_id = np.asarray([-1]).reshape(1, 1)
+        prev_ids = np.asarray([-1]*3).reshape(1, 3, 1)
+        prop_pres = np.asarray([0]*3).reshape(1, 3, 1)
+        disc_pres = np.asarray([0]*3).reshape(1, 3, 1)
+
+        res = list(compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres))
+        for i, r in enumerate(res):
+            res[i] = self.eval(r)
+        used, new = res
+
+        assert_array_equal(used, last_used_id)
+        assert_array_equal(new[:, :3], prev_ids)
+        assert_array_equal(new[:, 3:], prev_ids)
+
+    def test_prop_obj(self):
+        last_used_id = np.asarray([3]).reshape(1, 1)
+        prev_ids = np.asarray([1, -1, 3]).reshape(1, 3, 1)
+        prop_pres = np.asarray([1, 0, 0]).reshape(1, 3, 1)
+        disc_pres = np.asarray([0]*3).reshape(1, 3, 1)
+
+        res = list(compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres))
+        for i, r in enumerate(res):
+            res[i] = self.eval(r)
+        used, new = res
+
+        expected_prop = np.asarray([1, -1, -1]).reshape(1, 3, 1)
+        expected_disc = np.asarray([-1, -1, -1]).reshape(1, 3, 1)
+
+        assert_array_equal(used, last_used_id)
+        assert_array_equal(new[:, :3], expected_prop)
+        assert_array_equal(new[:, 3:], expected_disc)
+
+    def test_disc_obj(self):
+        last_used_id = np.asarray([3]).reshape(1, 1)
+        prev_ids = np.asarray([1, -1, 3]).reshape(1, 3, 1)
+        prop_pres = np.asarray([1, 0, 0]).reshape(1, 3, 1)
+        disc_pres = np.asarray([1, 1, 0]).reshape(1, 3, 1)
+
+        res = list(compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres))
+        for i, r in enumerate(res):
+            res[i] = self.eval(r)
+        used, new = res
+
+        expected_last_used_id = np.asarray([5]).reshape(1, 1)
+        expected_prop = np.asarray([1, -1, -1]).reshape(1, 3, 1)
+        expected_disc = np.asarray([4, 5, -1]).reshape(1, 3, 1)
+
+        assert_array_equal(used, expected_last_used_id)
+        assert_array_equal(new[:, :3], expected_prop)
+        assert_array_equal(new[:, 3:], expected_disc)

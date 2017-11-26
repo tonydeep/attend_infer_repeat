@@ -211,8 +211,104 @@ def stack_states(states):
     states = nest.pack_sequence_as(orig_state, states)
     return states
 
+
 def maybe_getattr(obj, name):
     attr = None
     if name is not None:
         attr = getattr(obj, name, None)
     return attr
+
+
+def broadcast_against(tensor, against_expr):
+    """Adds trailing dimensions to mask to enable broadcasting against data
+
+    :param tensor: tensor to be broadcasted
+    :param against_expr: tensor will be broadcasted against it
+    :return: mask expr with tf.rank(mask) == tf.rank(data)
+    """
+
+    def cond(data, tensor):
+        return tf.less(tf.rank(tensor), tf.rank(data))
+
+    def body(data, tensor):
+        return data, tf.expand_dims(tensor, -1)
+
+    shape_invariants = [against_expr.get_shape(), tf.TensorShape(None)]
+    _, tensor = tf.while_loop(cond, body, [against_expr, tensor], shape_invariants)
+    return tensor
+
+
+# def select_present(x, presence, batch_size=1, name='select_present'):
+#     with tf.variable_scope(name):
+#         presence = 1 - tf.to_int32(presence)  # invert mask
+#
+#         # bs = x.get_shape()[0]
+#         # if bs != None:  # here type(bs) is tf.Dimension and == is ok
+#         #     batch_size = int(bs)
+#
+#         x_shape = tf.shape(x)
+#         p_shape = tf.shape(presence)
+#         sample_shape = x_shape[tf.shape(p_shape)[0]:]
+#         # batch_size = tf.reduce_prod(tf.shape(presence))
+#         # batch_size = 3
+#
+#         presence = tf.reshape(presence, [-1])
+#         flat_shape = tf.concat(([-1], sample_shape), 0)
+#         x = tf.reshape(x, flat_shape)
+#
+#         # 2 partitions for every sample in a batch: 0 and 1
+#         num_partitions = 2 * batch_size
+#         r = tf.range(0, num_partitions,  2)
+#         r.set_shape(tf.TensorShape(batch_size))
+#         r = broadcast_against(r, presence)
+#         # r = _broadcast_against(presence, r)
+#
+#         presence += r
+#
+#         selected = tf.dynamic_partition(x, presence, num_partitions)
+#         # selected = tf.concat(selected, axis=0)
+#         # selected = tf.reshape(selected, x_shape)
+#
+#     return presence
+# [ 0  2  4  6  8 10]
+# [ 1  2  4  7  9 10]
+# [0, 1, 1, 0, 0, 1]
+
+def select_present(x, presence, batch_size=1, name='select_present'):
+    with tf.variable_scope(name):
+        presence = 1 - tf.to_int32(presence)  # invert mask
+
+        bs = x.get_shape()[0]
+        if bs != None:  # here type(bs) is tf.Dimension and == is ok
+            batch_size = int(bs)
+
+        num_partitions = 2 * batch_size
+        r = tf.range(0, num_partitions,  2)
+        r.set_shape(tf.TensorShape(batch_size))
+        r = broadcast_against(r, presence)
+
+        presence += r
+
+        selected = tf.dynamic_partition(x, presence, num_partitions)
+        selected = tf.concat(axis=0, values=selected)
+        selected = tf.reshape(selected, tf.shape(x))
+
+    return selected
+
+
+def compute_object_ids(last_used_id, prev_ids, propagated_pres, discovery_pres):
+    last_used_id, prev_ids, propagated_pres, discovery_pres = [tf.convert_to_tensor(i) for i in (last_used_id, prev_ids, propagated_pres, discovery_pres)]
+    prop_ids = prev_ids * propagated_pres - (1 - propagated_pres)
+
+    # each object gets a new id
+    id_increments = tf.cumsum(discovery_pres, 1)
+    # find the new id by incrementing the last used ids
+    disc_ids = id_increments + last_used_id[:, tf.newaxis]
+
+    # last used ids needs to be incremented by the maximum value
+    last_used_id += id_increments[:, -1]
+
+    disc_ids = disc_ids * discovery_pres - (1 - discovery_pres)
+
+    new_ids = tf.concat([prop_ids, disc_ids], 1)
+    return last_used_id, new_ids

@@ -205,8 +205,9 @@ def get_git_revision_hash():
 def set_flags_if_notebook(**flags_to_set):
     if is_notebook() and flags_to_set:
         print 'Setting the following flags:'
-        for k, v in flags_to_set.iteritems():
-            print '\t{}: {}'.format(k, v)
+        keys = sorted(flags_to_set.keys())
+        for k in keys:
+            print '\t{}: {}'.format(k, flags_to_set[k])
 
         set_flags(**flags_to_set)
 

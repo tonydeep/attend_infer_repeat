@@ -4,6 +4,7 @@ import sonnet as snt
 from attend_infer_repeat.mnist_model import SeqAIRonMNIST, KLBySamplingMixin
 from attend_infer_repeat.experiment_tools import optimizer_from_string
 from attend_infer_repeat.ops import maybe_getattr
+from attend_infer_repeat.seq_mixins import NaiveSeqAirMixin, SeparateSeqAIRMixin
 
 flags = tf.flags
 
@@ -21,9 +22,9 @@ tf.flags.DEFINE_integer('n_steps_per_image', 3, '')
 tf.flags.DEFINE_boolean('importance_resample', False, '')
 tf.flags.DEFINE_boolean('condition_on_prev', False, '')
 tf.flags.DEFINE_boolean('condition_on_latents', False, '')
-tf.flags.DEFINE_boolean('condition_on_rnn_output', False, '')
 tf.flags.DEFINE_boolean('transition_only_on_object', False, '')
 tf.flags.DEFINE_boolean('prior_around_prev', False, '')
+tf.flags.DEFINE_boolean('separate', False, '')
 tf.flags.DEFINE_string('opt', '', '')
 tf.flags.DEFINE_string('transition', 'LSTM', '')
 tf.flags.DEFINE_string('time_transition', None, '')
@@ -40,7 +41,11 @@ def load(img, num):
     transition = maybe_getattr(snt, f.transition)
     time_transition = maybe_getattr(snt, f.time_transition)
 
-    class SeqAIRwithVIMCO(SeqAIRonMNIST, KLBySamplingMixin):
+    seq_mixin = NaiveSeqAirMixin
+    if f.separate:
+        seq_mixin = SeparateSeqAIRMixin
+
+    class SeqAIRwithVIMCO(SeqAIRonMNIST, KLBySamplingMixin, seq_mixin):
         importance_resample = f.importance_resample
         init_step_success_prob = f.init_step_success_prob
         final_step_success_prob = f.final_step_success_prob
@@ -62,7 +67,6 @@ def load(img, num):
                       iw_samples=f.n_iw_samples,
                       output_multiplier=f.output_multiplier,
                       condition_on_prev=f.condition_on_prev,
-                      condition_on_rnn_output=f.condition_on_rnn_output,
                       condition_on_latents=f.condition_on_latents,
                       prior_around_prev=f.prior_around_prev,
                       transition_only_on_object=f.transition_only_on_object)

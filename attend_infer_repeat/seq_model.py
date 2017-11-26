@@ -2,20 +2,18 @@ import functools
 
 import tensorflow as tf
 
-from cell import AIRCell
 from elbo import estimate_importance_weighted_elbo
 from evaluation import gradient_summaries
 from grad import VIMCOEstimator
 from modules import AIRDecoder
 from ops import tile_input_for_iwae, gather_axis
 from prior import NumStepsDistribution
-from seq_mixins import NaiveSeqAirMixin
 
 
 # TODO: implement FIVO & per-timestep VIMCO for FIVO
 
 
-class SeqAIRModel(NaiveSeqAirMixin):
+class SeqAIRModel(object):
     """Generic AIR model
 
     :param analytic_kl_expectation: bool, computes expectation over conditional-KL analytically if True
@@ -27,7 +25,7 @@ class SeqAIRModel(NaiveSeqAirMixin):
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
                  output_std=1., output_multiplier=1., iw_samples=1,
-                 condition_on_rnn_output=False, condition_on_prev=False, prior_around_prev=False,
+                 condition_on_prev=False, prior_around_prev=False,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -55,7 +53,6 @@ class SeqAIRModel(NaiveSeqAirMixin):
         self.output_multiplier = output_multiplier
         self.iw_samples = iw_samples
 
-        self.condition_on_rnn_output = condition_on_rnn_output
         self.condition_on_prev = condition_on_prev
         self.prior_around_prev = prior_around_prev
 
@@ -76,8 +73,8 @@ class SeqAIRModel(NaiveSeqAirMixin):
             # save existing variables to know later what we've created
             previous_vars = tf.trainable_variables()
 
-            self._build(transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
-                        steps_predictor, cell_kwargs)
+            self._build(glimpse_decoder, transition, input_encoder, glimpse_encoder, transform_estimator,
+                        steps_predictor, **cell_kwargs)
 
             # group variables
             model_vars = set(tf.trainable_variables()) - set(previous_vars)
@@ -86,8 +83,7 @@ class SeqAIRModel(NaiveSeqAirMixin):
             self.encoder_vars = list(model_vars - set(self.decoder_vars))
             self.model_vars = list(model_vars)
 
-    def _build(self, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
-               steps_predictor, cell_kwargs):
+    def _build(self, glimpse_decoder, *cell_args, **cell_kwargs):
         """Build the model. See __init__ for argument description"""
 
         self.num_step_prior_prob, self.num_step_prior, \
@@ -95,22 +91,16 @@ class SeqAIRModel(NaiveSeqAirMixin):
 
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
 
-        condition_on_inpt = self.condition_on_prev or self.condition_on_rnn_output
-        air_cell = AIRCell(self.img_size, self.glimpse_size, self.n_what, transition,
-                           input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                           condition_on_inpt=condition_on_inpt,
-                           debug=self.debug,
-                           **cell_kwargs)
-
-        self.cell = air_cell
+        self.cells = self._make_cells(*cell_args, **cell_kwargs)
+        self.cell = self.cells[0]
 
         res = self._time_loop()
         self.final_state = res[2]
-        self.cumulative_imp_weights = res[5]
-        tas = res[6:]
+        self.cumulative_imp_weights = res[4]
+        tas = res[7:]
 
         # TODO: prettify
-        self.output_names = 'canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
+        self.output_names = 'obj_id canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
                             ' kl_where_per_sample kl_steps_per_sample kl_per_sample elbo_per_sample num_step_per_sample' \
                             ' importance_weight iw_elbo'.split()
         for name, ta in zip(self.cell.output_names + self.output_names, tas):
