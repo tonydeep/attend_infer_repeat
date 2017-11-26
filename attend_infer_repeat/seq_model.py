@@ -1,22 +1,21 @@
 import functools
 
 import tensorflow as tf
-from tensorflow.contrib.distributions import Normal
-from tensorflow.python.util import nest
 
 from cell import AIRCell
+from elbo import estimate_importance_weighted_elbo
 from evaluation import gradient_summaries
-from prior import NumStepsDistribution
-from modules import AIRDecoder
-from elbo import kl_by_sampling
 from grad import VIMCOEstimator
-from ops import tile_input_for_iwae, gather_axis, stack_states
+from modules import AIRDecoder
+from ops import tile_input_for_iwae, gather_axis
+from prior import NumStepsDistribution
+from seq_mixins import NaiveSeqAirMixin
 
 
 # TODO: implement FIVO & per-timestep VIMCO for FIVO
 
 
-class SeqAIRModel(object):
+class SeqAIRModel(NaiveSeqAirMixin):
     """Generic AIR model
 
     :param analytic_kl_expectation: bool, computes expectation over conditional-KL analytically if True
@@ -71,7 +70,8 @@ class SeqAIRModel(object):
         self.used_obs = tile_input_for_iwae(obs, self.iw_samples, with_time=True)
 
         with tf.variable_scope(self.__class__.__name__):
-            self.output_multiplier = tf.Variable(output_multiplier, dtype=tf.float32, trainable=False, name='canvas_multiplier')
+            self.output_multiplier = tf.Variable(output_multiplier, dtype=tf.float32, trainable=False,
+                                                 name='canvas_multiplier')
 
             # save existing variables to know later what we've created
             previous_vars = tf.trainable_variables()
@@ -90,7 +90,7 @@ class SeqAIRModel(object):
                steps_predictor, cell_kwargs):
         """Build the model. See __init__ for argument description"""
 
-        self.num_step_prior_prob, self.num_step_prior,\
+        self.num_step_prior_prob, self.num_step_prior, \
         self.scale_prior, self.shift_prior, self.what_prior = self._make_priors()
 
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
@@ -104,202 +104,7 @@ class SeqAIRModel(object):
 
         self.cell = air_cell
 
-        # TODO: extract to a method; those should be sampled from a q and there should be a prior on that
-        what = tf.zeros((1, 1, self.cell._n_what))
-        where = tf.zeros((1, 1, self.cell._n_transform_param))
-        presence = tf.zeros((1, 1, 1))
-        z0 = [tf.tile(i, (self.effective_batch_size, self.max_steps, 1)) for i in what, where, presence]
-        initial_state = z0, self.cell.initial_state(self.used_obs[0])[1:]
-
-        rnn_hidden_state = transition.zero_state(self.effective_batch_size, tf.float32)
-        rnn_hidden_state = stack_states([rnn_hidden_state] * self.max_steps)
-
-        time_state = 0.
-        if self.time_transition_class is not None:
-            self.time_transition = self.time_transition_class(self.cell._n_hidden)
-            time_state = self.time_transition.initial_state(self.effective_batch_size, tf.float32, trainable=True)
-
-        tas = []
-
-        def make_ta(shape=[], usual_shape=True):
-            if usual_shape:
-                shape = [self.batch_size * self.iw_samples] + shape
-            ta = tf.TensorArray(tf.float32, self.n_timesteps, dynamic_size=False, element_shape=shape)
-            tas.append(ta)
-            return ta
-
-        # TODO: prettify
-        what_ta = make_ta([self.max_steps, self.n_what])
-        what_ta = make_ta([self.max_steps, self.n_what])
-        what_ta = make_ta([self.max_steps, self.n_what])
-        where_ta = make_ta([self.max_steps, 4])
-        where_ta = make_ta([self.max_steps, 4])
-        where_ta = make_ta([self.max_steps, 4])
-        pres_ta = make_ta([self.max_steps, 1])
-        pres_ta = make_ta([self.max_steps, 1])
-        canvas_ta = make_ta(list(self.img_size))
-        glimpse_ta = make_ta([self.max_steps] + list(self.glimpse_size))
-        posterior_step_prob_ta = make_ta([self.max_steps + 1])
-        likelihood_ta = make_ta()
-        kl_what_ta = make_ta([self.max_steps])
-        kl_where_ta = make_ta([self.max_steps])
-        kl_steps_ta = make_ta()
-        kl_ta = make_ta()
-        elbo_ta = make_ta()
-        num_step_ta = make_ta()
-        importance_weight_ta = make_ta()
-        iw_elbo_ta = make_ta([self.batch_size], False)
-
-        t = tf.constant(0, dtype=tf.int32, name='time')
-
-        cumulative_imp_weights = tf.ones((self.batch_size, self.iw_samples), dtype=tf.float32)
-        loop_vars = [t, self.used_obs, initial_state, rnn_hidden_state, time_state, cumulative_imp_weights] + tas
-
-        def cond(t, img_seq, *args):
-            return t < tf.shape(img_seq)[0]
-            
-        def body(t, img_seq, state, rnn_hidden_state, time_state, cumulative_imp_weights, *tas):
-            # parse inputs
-            img = img_seq[t]
-
-            # #################################################
-
-            batch_size = int(img.shape[0])
-            z_tm1, inner_state = state
-
-            # prepare latents
-            z_tm1 = [tf.reshape(i, (batch_size, self.max_steps, -1)) for i in z_tm1]
-
-            # prepare state
-            flat_img = tf.reshape(img, (batch_size, self.cell._n_pix))
-            hidden_state = [flat_img] + inner_state
-
-            # inner RNN loop
-            # TODO: state propagation in the outer loop should be done by a gating RNN
-            # Split the inner loop in two parts
-            #     a) propagate past objects based on the state and latents
-            #         objects here can only disappear, not appear
-            #     b) discover new objects based on the state
-            #     those two should use different rnns and results should be rearranged (pushed to the bottom of a vector)
-            hidden_outputs, hidden_states = [], []
-            for i in xrange(self.max_steps):
-                rnn_inpt = []
-                if self.condition_on_prev:
-                    z_tm1_per_object = [z[..., i, :] for z in z_tm1]
-                    # mask out absent objects
-                    pres = z_tm1_per_object[-1]
-                    z_tm1_per_object = [z * pres for z in z_tm1_per_object]
-                    rnn_inpt.extend(z_tm1_per_object)
-                if self.condition_on_rnn_output:
-                    rnn_inpt.append(rnn_hidden_state[..., i, :])
-
-                if not rnn_inpt:
-                    rnn_inpt = None
-
-                hidden_output, hidden_state = self.cell(rnn_inpt, hidden_state)
-                hidden_outputs.append(hidden_output)
-                hidden_states.append(hidden_state[-1])
-
-            # time transition
-            inner_rnn_state = hidden_state[-1]
-            # handle transition between timesteps by a different RNN
-            if self.time_transition_class is not None:
-                flat_rnn_state = nest.flatten(inner_rnn_state)
-                inpt = tf.concat(flat_rnn_state, -1)
-                flat_rnn_state[-1], time_state = self.time_transition(inpt, time_state)
-                inner_rnn_state = nest.pack_sequence_as(inner_rnn_state, flat_rnn_state)
-
-            # merge & flatten states
-            hidden_outputs = stack_states(hidden_outputs)
-            rnn_hidden_state = stack_states(hidden_states)
-
-            # extract latents
-            what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence = hidden_outputs
-            num_step_per_sample = tf.to_float(tf.reduce_sum(tf.squeeze(presence), -1))
-
-            # we overwrite only the hidden state of the inner rnn
-            inner_state[-1] = inner_rnn_state
-            state = [what, where, presence], inner_state
-
-            # #################################################
-            # Compute ELBOs
-            ## Decode
-            canvas, glimpse = self.decoder(what, where, presence)
-            canvas *= self.output_multiplier
-
-            ## Output Distribs
-            likelihood_per_pixel = Normal(canvas, self.output_std).log_prob(img)
-            likelihood = tf.reduce_sum(likelihood_per_pixel, (-2, -1))
-
-            num_steps_posterior = NumStepsDistribution(presence_prob[..., 0])
-            posterior_step_probs = num_steps_posterior.prob()
-
-            ax = where_loc.shape.ndims - 1
-            us, ut = tf.split(where_loc, 2, ax)
-            ss, st = tf.split(where_scale, 2, ax)
-            scale_posterior = Normal(us, ss)
-            shift_posterior = Normal(ut, st)
-            what_posterior = Normal(what_loc, what_scale)
-
-            ## KLs
-            ordered_step_prob = presence[..., 0]
-
-            if self.prior_around_prev:
-                # block gradient path
-                what_tm1, where_tm1 = [tf.stop_gradient(i) for i in z_tm1[:-1]]
-                what_prior = Normal(what_tm1, 1.)
-
-                ax = where_tm1.shape.ndims - 1
-                scale_prior_loc, shift_prior_loc = tf.split(where_tm1, 2, ax)
-                scale_prior = Normal(scale_prior_loc, 1.)
-                shift_prior = Normal(shift_prior_loc, 1.)
-
-            else:
-                what_prior = self.what_prior
-                scale_prior = self.scale_prior
-                shift_prior = self.shift_prior
-
-            ### KL what
-            what_kl = kl_by_sampling(what_posterior, what_prior, what)
-            kl_what = tf.reduce_sum(what_kl, -1) * ordered_step_prob
-
-            ### KL where
-            ax = where.shape.ndims - 1
-            scale, shift = tf.split(where, 2, ax)
-            scale_kl = kl_by_sampling(scale_posterior, scale_prior, scale)
-            shift_kl = kl_by_sampling(shift_posterior, shift_prior, shift)
-
-            scale_kl, shift_kl = [tf.reduce_sum(i * ordered_step_prob[..., tf.newaxis], -1) for i in
-                                  (scale_kl, shift_kl)]
-            kl_where = scale_kl + shift_kl
-
-            ### KL steps
-            kl_steps = kl_by_sampling(num_steps_posterior, self.num_step_prior,
-                                                         num_step_per_sample)
-            ### KL
-            kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_steps
-
-            ### elbo
-            elbo = likelihood - kl
-
-            ### importance_weights
-            iw_elbo, importance_weights = estimate_importance_weighted_elbo(self.batch_size, self.iw_samples, elbo)
-            cumulative_imp_weights *= importance_weights
-            cumulative_imp_weights /= tf.reduce_sum(cumulative_imp_weights, -1, keep_dims=True) + 1e-8
-
-            flat_iw = tf.reshape(importance_weights, (self.batch_size * self.iw_samples,))
-
-            # write outputs
-            tas = list(tas)
-            outputs = hidden_outputs + [canvas, glimpse, posterior_step_probs, likelihood, kl_what, kl_where, kl_steps, kl, elbo, num_step_per_sample, flat_iw, iw_elbo]
-            for i, (ta, output) in enumerate(zip(tas, outputs)):
-                tas[i] = ta.write(t, output)
-
-            # Increment time index
-            t += 1
-            return [t, img_seq, state, rnn_hidden_state, time_state, cumulative_imp_weights] + tas
-                
-        res = tf.while_loop(cond, body, loop_vars, parallel_iterations=self.batch_size)
+        res = self._time_loop()
         self.final_state = res[2]
         self.cumulative_imp_weights = res[5]
         tas = res[6:]
@@ -314,8 +119,8 @@ class SeqAIRModel(object):
 
         self.cumulative_elbo_per_sample = tf.reduce_sum(self.elbo_per_sample, 0)
 
-        # self.cumulative_iw_elbo_per_sample = tf.reduce_sum(self.iw_elbo, 0)
-        self.cumulative_iw_elbo_per_sample, _ = estimate_importance_weighted_elbo(self.batch_size, self.iw_samples, self.cumulative_elbo_per_sample)
+        self.cumulative_iw_elbo_per_sample, _ = estimate_importance_weighted_elbo(self.batch_size, self.iw_samples,
+                                                                                  self.cumulative_elbo_per_sample)
 
         resampling_logits = tf.reshape(self.cumulative_elbo_per_sample, (self.batch_size, self.iw_samples))
         self.cumulative_imp_distrib = tf.contrib.distributions.Categorical(resampling_logits)
@@ -435,7 +240,7 @@ class SeqAIRModel(object):
 
         shape = reinforce_loss_per_sample.shape.as_list()
         assert len(shape) == 2 and shape[0] == self.batch_size and shape[1] in (
-        1, self.iw_samples), 'shape is {}'.format(shape)
+            1, self.iw_samples), 'shape is {}'.format(shape)
 
         reinforce_loss = tf.reduce_mean(tf.reduce_sum(reinforce_loss_per_sample, -1))
         tf.summary.scalar('reinforce_loss', reinforce_loss)
@@ -468,19 +273,3 @@ class SeqAIRModel(object):
         value = tf.reduce_mean(resampled)
         setattr(self, name, value)
         tf.summary.scalar(name, value)
-
-
-# TODO: move somewhere else
-def estimate_importance_weighted_elbo(batch_size, iw_samples, per_sample_elbo):
-    per_sample_elbo = tf.reshape(per_sample_elbo, (batch_size, iw_samples))
-    importance_weights = tf.nn.softmax(per_sample_elbo, -1)
-
-    # tf.exp(tf.float32(89)) is inf, but if arg is 88 then it's not inf;
-    # similarly on the negative, exp of -90 is 0;
-    # when we subtract the max value, the dynamic range is about [-85, 0].
-    # If we subtract 78 from control, it becomes [-85, 78], which is almost twice as big.
-    control = tf.reduce_max(per_sample_elbo, -1, keep_dims=True) - 78.
-    normalised = tf.exp(per_sample_elbo - control)
-    iw_elbo = tf.log(tf.reduce_sum(normalised, -1, keep_dims=True)) + control - tf.log(float(iw_samples))
-    iw_elbo = tf.squeeze(iw_elbo)
-    return iw_elbo, importance_weights
