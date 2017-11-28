@@ -1,4 +1,5 @@
 import unittest
+import time
 import tensorflow as tf
 import sonnet as snt
 
@@ -36,7 +37,7 @@ class SeqModelTest(unittest.TestCase):
     n_what = 13
     n_steps_per_image = 3
     iw_samples = 2
-    n_timesteps = 10
+    n_timesteps = 2
 
     @classmethod
     def setUpClass(cls):
@@ -45,6 +46,7 @@ class SeqModelTest(unittest.TestCase):
 
         print 'Building AIR'
         cls.modules = make_modules()
+        time_start = time.clock()
         cls.air = AIRModelWithPriors(cls.imgs, cls.n_steps_per_image, cls.crop_size, cls.n_what,
                                      condition_on_prev=True,
                                      condition_on_latents=True,
@@ -55,16 +57,28 @@ class SeqModelTest(unittest.TestCase):
 
         print 'Constructed model'
 
+
         cls.train_step = cls.air.train_step(cls.learning_rate, nums=cls.nums)
+        cls.loss = tf.reduce_mean(cls.air.iw_elbo)
         cls.loss = cls.air.nelbo / cls.air.n_timesteps
         print 'Computed gradients'
+        time_end = time.clock()
+        elapsed_time = time_end - time_start
+        print 'Building model took {}s'.format(elapsed_time)
 
     def test_forward(self):
         sess = tf.Session()
         sess.run(tf.global_variables_initializer())
 
         xx = np.random.rand(*self.imgs.get_shape().as_list())
+
+        time_start = time.clock()
+
         rnn_outputs, outputs, l = sess.run([self.rnn_outputs, self.outputs, self.loss], {self.imgs: xx})
+
+        time_end = time.clock()
+        elapsed_time = time_end - time_start
+        print 'Forward pass took {}s'.format(elapsed_time)
 
         print 'rnn_outputs:'
         for k, v in rnn_outputs.iteritems():
@@ -77,8 +91,8 @@ class SeqModelTest(unittest.TestCase):
 
         print
         print 'loss = {}'.format(l)
-        # self.assertLess(l, 70.)
-        # self.assertGreater(l, 39.)
+        self.assertLess(l, 70.)
+        self.assertGreater(l, 39.)
 
         print 'obj_ids'
         for i in xrange(self.batch_size):
@@ -93,9 +107,38 @@ class SeqModelTest(unittest.TestCase):
         xx = np.random.rand(*self.imgs.get_shape().as_list())
 
         print 'Running train step'
+
+        time_start = time.clock()
+
         sess.run(self.train_step, {self.imgs: xx})
+
+        time_end = time.clock()
+        elapsed_time = time_end - time_start
+        print 'Backward pass took {}s'.format(elapsed_time)
+
         print 'Done'
 
     def test_shapes(self):
         learning_signal_shape = self.air.num_steps_learning_signal.shape.as_list()
         self.assertEqual(learning_signal_shape, [self.batch_size, 1])
+
+
+
+## Naive implt
+# Building model took 27.32111s 26.776982s 27.426379s
+# Backward pass took 1.70163s 1.665743s 1.711467s
+# Forward pass took 0.33428s 0.338653s 0.348015s
+
+## Mering impl:
+# Building model took 21.650689s 22.196988s 22.456464s
+# Backward pass took 1.378777 1.351987s 1.347649s
+# Forward pass took 0.30169 0.292079s 0.293363s
+
+## No partitioning:
+# Building model took 21.181945s 21.53531s 21.635552s
+# Backward pass took 1.303993s 1.281379s 1.293466s
+# Forward pass took 0.303936s 0.285393s 0.292647s
+
+# ## Conclusions:
+# Partitioning is an expensive operation and we should avoid calling it whenever we can
+# but we use it if we have to, and for now there's no other alternative

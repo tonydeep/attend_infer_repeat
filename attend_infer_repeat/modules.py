@@ -4,6 +4,7 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.contrib.distributions import NormalWithSoftplusScale
 from tensorflow.python.util import nest
+from tensorflow.contrib.resampler import resampler as tf_resampler
 
 import sonnet as snt
 
@@ -14,7 +15,7 @@ from ops import expand_around_zero
 class ParametrisedGaussian(snt.AbstractModule):
 
     def __init__(self, n_params, scale_offset=0., *args, **kwargs):
-        super(ParametrisedGaussian, self).__init__(self.__class__.__name__)
+        super(ParametrisedGaussian, self).__init__()
         self._n_params = n_params
         self._scale_offset = scale_offset
         self._create_distrib = lambda x, y: NormalWithSoftplusScale(x, y, *args, **kwargs)
@@ -30,7 +31,7 @@ class ParametrisedGaussian(snt.AbstractModule):
 class StochasticTransformParam(snt.AbstractModule):
 
     def __init__(self, n_hidden, min_glimpse_size=0.0, max_glimpse_size=1.0, scale_bias=-2.):
-        super(StochasticTransformParam, self).__init__(self.__class__.__name__)
+        super(StochasticTransformParam, self).__init__()
         self._n_hidden = n_hidden
         assert 0 <= min_glimpse_size < max_glimpse_size <= 1.
         self._min_glimpse_size = min_glimpse_size
@@ -58,7 +59,7 @@ class StochasticTransformParam(snt.AbstractModule):
 class Encoder(snt.AbstractModule):
 
     def __init__(self, n_hidden):
-        super(Encoder, self).__init__(self.__class__.__name__)
+        super(Encoder, self).__init__()
         self._n_hidden = n_hidden
 
     def _build(self, inpt):
@@ -71,7 +72,7 @@ class Encoder(snt.AbstractModule):
 class Decoder(snt.AbstractModule):
 
     def __init__(self, n_hidden, output_size):
-        super(Decoder, self).__init__(self.__class__.__name__)
+        super(Decoder, self).__init__()
         self._n_hidden = n_hidden
         self._output_size = output_size
 
@@ -86,7 +87,7 @@ class Decoder(snt.AbstractModule):
 class SpatialTransformer(snt.AbstractModule):
 
     def __init__(self, img_size, crop_size, inverse=False):
-        super(SpatialTransformer, self).__init__(self.__class__.__name__)
+        super(SpatialTransformer, self).__init__()
 
         with self._enter_variable_scope():
             constraints = snt.AffineWarpConstraints.no_shear_2d()
@@ -96,7 +97,7 @@ class SpatialTransformer(snt.AbstractModule):
 
     def _sample_image(self, img, transform_params):
         grid_coords = self._warper(transform_params)
-        return snt.resampler(img, grid_coords)
+        return tf_resampler(img, grid_coords)
 
     def _build(self, img, transform_params):
         """Assume that `transform_param` has the shape of (..., n_params) where n_params = n_scales + n_shifts
@@ -127,7 +128,7 @@ class SpatialTransformer(snt.AbstractModule):
 class StepsPredictor(snt.AbstractModule):
 
     def __init__(self, n_hidden, steps_bias=0.):
-        super(StepsPredictor, self).__init__(self.__class__.__name__)
+        super(StepsPredictor, self).__init__()
         self._n_hidden = n_hidden
         self._steps_bias = steps_bias
 
@@ -140,7 +141,7 @@ class StepsPredictor(snt.AbstractModule):
 class BaselineMLP(snt.AbstractModule):
 
     def __init__(self, n_hidden):
-        super(BaselineMLP, self).__init__(self.__class__.__name__)
+        super(BaselineMLP, self).__init__()
         self._n_hidden = n_hidden
 
     def _build(self, *inpts):
@@ -162,7 +163,7 @@ class BaselineMLP(snt.AbstractModule):
 class AIRDecoder(snt.AbstractModule):
 
     def __init__(self, img_size, glimpse_size, glimpse_decoder, batch_dims=2):
-        super(AIRDecoder, self).__init__(self.__class__.__name__)
+        super(AIRDecoder, self).__init__()
         self._inverse_transformer = SpatialTransformer(img_size, glimpse_size, inverse=True)
         self._batch_dims = batch_dims
 

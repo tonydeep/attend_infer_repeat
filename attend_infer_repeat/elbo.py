@@ -1,7 +1,7 @@
 import functools
 import tensorflow as tf
 from tensorflow.contrib.distributions import Normal
-from tensorflow.contrib.distributions.python.ops.kullback_leibler import kl as _kl
+from tensorflow.python.ops.distributions.kullback_leibler import kl_divergence as _kl
 
 from prior import geometric_prior, tabular_kl
 

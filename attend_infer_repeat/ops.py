@@ -1,3 +1,4 @@
+import numpy as np
 import tensorflow as tf
 from tensorflow.python.training import moving_averages
 from tensorflow.python.util import nest
@@ -172,6 +173,7 @@ def gather_axis(tensor, idx, axis=-1):
 
     flat = tf.reshape(tensor, tf.concat(([n * pre[-1]], post), -1))
     flat = tf.gather(flat, linear_idx)
+    # flat = tf.gather(tf.Print(flat, [flat], 'flat', -1, 100), tf.Print(linear_idx, [linear_idx], 'linear_idx', -1, 100))
     tensor = tf.reshape(flat, shape)
     return tensor
 
@@ -290,9 +292,119 @@ def select_present(x, presence, batch_size=1, name='select_present'):
         presence += r
 
         selected = tf.dynamic_partition(x, presence, num_partitions)
-        selected = tf.concat(axis=0, values=selected)
+        selected = tf.concat(selected, 0)
         selected = tf.reshape(selected, tf.shape(x))
 
+    return selected
+
+
+def select_present_list(tensor_list, presence, batch_size=1, name='select_present_many'):
+    """Like `select_present`, but handles a list of tensors.
+
+     It concatenates the tensors along the last dimension, calls `select_present` only once
+     and splits the tensors again. It's faster and the graph is less complicated that
+     way.
+
+    :param tensor_list:
+    :param presence:
+    :param batch_size:
+    :param name:
+    :return:
+    """
+    orig_inpt = tensor_list
+    with tf.variable_scope(name):
+        tensor_list = nest.flatten(tensor_list)
+        lens = [0] + [int(t.shape[-1]) for t in tensor_list]
+        lens = np.cumsum(lens)
+
+        merged = tf.concat(tensor_list, -1)
+        merged = select_present(merged, presence, batch_size)
+        tensor_list = []
+
+        for i in xrange(len(lens) - 1):
+            st, ed = lens[i], lens[i + 1]
+            tensor_list.append(merged[..., st:ed])
+
+    return nest.pack_sequence_as(orig_inpt, tensor_list)
+
+
+        # def scatter_present(n, vals, elem_shape):
+#     # i = tf.range(tf.to_int32(n))[tf.newaxis]
+#     vals = vals[tf.newaxis]
+#
+#     # scattered = tf.scatter_nd(i, vals, elem_shape)
+#
+#     rank = tf.shape(elem_shape)[0]
+#     before = tf.zeros((rank, 1), dtype=tf.int32)
+#     after = tf.to_int32(elem_shape) - tf.to_int32(tf.shape(vals))
+#     padding = tf.concat([before, after[:, tf.newaxis]], 1)
+#     scattered = tf.pad(vals, padding)
+#
+#     scattered = tf.cond(tf.greater(n, 0.), lambda: scattered, lambda: tf.zeros(elem_shape, tf.float32))
+#
+#     # return tf.to_float(tf.rank(vals))
+#     # return tf.to_float(padding)
+#     return scattered
+
+
+# def select_present2(x, presence, batch_size=1, name='select_present'):
+    # with tf.variable_scope(name):
+    #
+    #     bool_pres = tf.cast(presence, bool)
+    #     idx = tf.where(bool_pres)
+    #     idx = tf.cast(idx, tf.int32)
+    #     # values = tf.gather_nd(x, idx)
+    #     values = tf.gather(x, idx)
+    #
+    #     nnz = tf.reduce_sum(presence, -1)
+    #     elem_shape = tf.shape(x)[1:]
+    #
+    #     def map_fn((n, vals)):
+    #         return scatter_present(n, vals, elem_shape)
+    #
+    #     # idx2 = tf.to_int32(tf.where(tf.greater(nnz, 0.)))
+    #     # values = tf.scatter_nd(idx2, values, tf.shape(nnz))
+    #
+    #     return nnz, elem_shape, values, idx
+    #
+    #     selected = tf.map_fn(map_fn, [nnz, values], dtype=tf.float32)
+    #     # selected = tf.reshape(selected, tf.shape(x))
+    #
+    #     # return values, elem_shape, selected
+    #     # selected.set_shape(x.get_shape())
+    #     #
+    #     #
+    #
+    #     # new_idx = tf.range(tf.to_int32(nnz))
+    #     #
+    #     # selected = tf.scatter_nd(new_idx, values, tf.shape(x))
+    #     # # return nnz, idx, values, selected
+    #     return selected
+
+
+def select_present_impl((vals, p)):
+    idx = tf.where(tf.cast(p, bool))
+    selected_vals = tf.gather_nd(vals, idx)
+
+    # selected_vals = gather_axis(vals, idx, 0)
+    # selected_vals = tf.boolean_mask(vals, tf.cast(p, bool))
+
+    nnz = tf.to_int32(tf.reduce_sum(p))
+    scatter_idx = tf.range(nnz)
+    scattered = tf.scatter_nd(scatter_idx, selected_vals, tf.shape(vals))
+    return scattered, scatter_idx, selected_vals, tf.shape(vals), tf.shape(idx), tf.shape(vals)
+    # return selected_vals, scatter_idx, selected_vals, tf.shape(vals), tf.shape(idx), tf.shape(vals)
+
+
+def select_present2(x, presence, batch_size=1, name='select_present'):
+
+    batch_size = 64
+    try:
+        batch_size = int(x.shape[0])
+    except TypeError:
+        pass
+
+    selected = tf.map_fn(select_present_impl, [x, presence], dtype=tf.float32, parallel_iterations=batch_size)
     return selected
 
 

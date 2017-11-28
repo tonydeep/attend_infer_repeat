@@ -229,12 +229,15 @@ def is_notebook():
 
 def optimizer_from_string(opt_string, build=True):
 
-    res = re.search(r'([a-z|A-Z]+)\(?(.*)\)?', opt_string).groups()
+    res = re.search(r'([a-z|A-Z]+)\(?(.*)\)?$', opt_string).groups()
     opt_name = res[0]
 
     opt_args = ''
     if len(res) > 1:
         opt_args = res[1]
+
+    if opt_args.endswith(')'):
+        opt_args = opt_args[:-1]
 
     opt_args = eval('dict({})'.format(opt_args))
     opt = getattr(tf.train, '{}Optimizer'.format(opt_name))

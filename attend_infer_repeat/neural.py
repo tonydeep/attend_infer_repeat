@@ -72,7 +72,7 @@ class MLP(snt.AbstractModule):
         :param transfer: callable or None, a transfer function for the output
         """
 
-        super(MLP, self).__init__(self.__class__.__name__)
+        super(MLP, self).__init__()
         self._n_hiddens = nest.flatten(n_hiddens)
         transfers = nest.flatten(hidden_transfer)
         if len(transfers) > 1:

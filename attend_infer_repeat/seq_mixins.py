@@ -3,9 +3,12 @@ from tensorflow.contrib.distributions import Normal
 from tensorflow.python.util import nest
 
 from elbo import kl_by_sampling, estimate_importance_weighted_elbo
-from ops import stack_states, select_present, compute_object_ids
+from ops import stack_states, compute_object_ids
 from prior import NumStepsDistribution
 from cell import AIRCell, PropagatingAIRCell
+
+
+from ops import select_present, select_present_list
 
 
 class NaiveSeqAirMixin(object):
@@ -310,6 +313,7 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         last_used_id, new_obj_id = compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres)
 
 
+
         # 3) merge outputs of the two models
         hidden_outputs = propagate_outputs + discovery_outputs
         # hidden_outputs = discovery_outputs + propagate_outputs
@@ -317,12 +321,19 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         # 4) filter; move present states to the beginning, but maintain ordering, e.g. propagated objects
         # should come before the new ones
         presence = hidden_outputs[-1]
-
         hidden_outputs.append(new_obj_id)
+
         # return only #self.max_steps latents
-        for i, ho in enumerate(hidden_outputs):
-            ho = select_present(ho, presence[..., 0], self.effective_batch_size)
-            hidden_outputs[i] = ho[:, :self.max_steps]
+        # ## naive implementation
+        # for i, ho in enumerate(hidden_outputs):
+        #     shape = ho.shape.as_list()
+        #     ho = select_present(ho, presence[..., 0], self.effective_batch_size)
+        #     print i, shape, ho
+        #     hidden_outputs[i] = ho[:, :self.max_steps]
+
+        ## merge, partition, split to avoid partitioning each vec separately
+        hidden_outputs = select_present_list(hidden_outputs, presence[..., 0])
+        hidden_outputs = [ho[:, :self.max_steps] for ho in hidden_outputs]
 
         # reset ids of forgotten objects to -1
         obj_ids = hidden_outputs[-1]

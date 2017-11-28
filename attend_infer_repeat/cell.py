@@ -37,7 +37,7 @@ class AIRCell(snt.RNNCore):
         :param debug: boolean, adds checks for NaNs in the inputs to distributions
         """
 
-        super(AIRCell, self).__init__(self.__class__.__name__)
+        super(AIRCell, self).__init__()
         self._img_size = img_size
         self._n_pix = np.prod(self._img_size)
         self._crop_size = crop_size
@@ -142,6 +142,11 @@ class AIRCell(snt.RNNCore):
 
         return presence, presence_prob
 
+    def _maybe_transition(self, presence, inpt, state, new_state):
+        bool_pres = tf.cast(presence, bool)
+        new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
+        return new_state
+
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
@@ -169,8 +174,7 @@ class AIRCell(snt.RNNCore):
 
         if self._transition_only_on_object:
             # if the object is not present, we don't update the state
-            bool_pres = tf.cast(presence, bool)
-            new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
+            new_state = self._maybe_transition(presence, inpt, state, new_state)
 
         return output, new_state
 
@@ -210,11 +214,18 @@ class PropagatingAIRCell(AIRCell):
 
         return presence, presence_prob
 
+    def _maybe_transition(self, presence, inpt, state, new_state):
+        """Transition only if the object was present before"""
+        presence_tm1 = inpt[-1]
+        bool_pres = tf.cast(presence_tm1, bool)
+        new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
+        return new_state
+
 
 class SeqAIRCell(snt.RNNCore):
 
     def __init__(self, n_steps, air_cell):
-        super(SeqAIRCell, self).__init__(self.__class__.__name__)
+        super(SeqAIRCell, self).__init__()
         self._n_steps = n_steps
         self._cell = air_cell
 

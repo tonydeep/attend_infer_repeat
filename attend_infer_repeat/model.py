@@ -22,7 +22,7 @@ class AIRModel(object):
     def __init__(self, obs, max_steps, glimpse_size,
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
-                 output_std=1., discrete_steps=True, output_multiplier=1., iw_samples=1,
+                 output_std=1., output_multiplier=1., iw_samples=1,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -48,7 +48,6 @@ class AIRModel(object):
         self.glimpse_size = glimpse_size
         self.n_what = n_what
         self.output_std = output_std
-        self.discrete_steps = discrete_steps
         self.output_multiplier = output_multiplier
         self.iw_samples = iw_samples
         self.debug = debug
@@ -78,7 +77,6 @@ class AIRModel(object):
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
         air_cell = AIRCell(self.img_size, self.glimpse_size, self.n_what, transition,
                             input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                            discrete_steps=self.discrete_steps,
                             debug=self.debug,
                             **cell_kwargs)
 
