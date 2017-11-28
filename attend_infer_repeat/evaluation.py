@@ -10,6 +10,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
+from modules import SpatialTransformer
+
 
 def rect(bbox, c=None, facecolor='none', label=None, ax=None, line_width=1):
     r = Rectangle((bbox[1], bbox[0]), bbox[3], bbox[2], linewidth=line_width,
@@ -134,6 +136,9 @@ class ProgressFig(object):
             names = 'canvas glimpse posterior_step_prob presence where'.split()
             tensors = [getattr(self.air, 'resampled_' + name, getattr(self.air, name)) for name in names]
             tensors[2] = tensors[2][..., 1:]
+
+            # logits to coords
+            tensors[-1] = SpatialTransformer.to_coords(tensors[-1])
             self._air_tensors = [self.air.obs] + tensors
 
         res = self.sess.run(self._air_tensors)

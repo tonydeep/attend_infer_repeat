@@ -125,7 +125,7 @@ class SeqAIRModel(object):
         self._log_resampled(self.kl_steps_per_sample, 'kl_num_steps')
 
         # For rendering
-        resampled_names = 'canvas glimpse presence where posterior_step_prob'.split()
+        resampled_names = 'obj_id canvas glimpse presence where posterior_step_prob'.split()
         for name in resampled_names:
             setattr(self, 'resampled_' + name, self.resample(getattr(self, name), axis=1))
 
@@ -255,7 +255,11 @@ class SeqAIRModel(object):
 
     def _resample(self, arg, axis=-1):
         iw_sample_idx = self.imp_resampling_idx + tf.range(self.batch_size) * self.iw_samples
-        return gather_axis(arg, iw_sample_idx, axis)
+        shape = arg.shape.as_list()
+        shape[axis] = self.batch_size
+        resampled = gather_axis(arg, iw_sample_idx, axis)
+        resampled.set_shape(shape)
+        return resampled
 
     def _log_resampled(self, resampled, name):
         resampled = self._resample(resampled)

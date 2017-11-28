@@ -323,7 +323,7 @@ def select_present_list(tensor_list, presence, batch_size=None, name='select_pre
             st, ed = lens[i], lens[i + 1]
             tensor_list.append(merged[..., st:ed])
 
-    return nest.pack_sequence_as(orig_inpt, tensor_list)
+    return nest.pack_sequence_as(structure=orig_inpt, flat_sequence=tensor_list)
 
 
         # def scatter_present(n, vals, elem_shape):
@@ -420,5 +420,7 @@ def compute_object_ids(last_used_id, prev_ids, propagated_pres, discovery_pres):
 
     disc_ids = disc_ids * discovery_pres - (1 - discovery_pres)
 
-    new_ids = tf.concat([prop_ids, disc_ids], 1)
+    # TODO: reversed order: update unit test
+    new_ids = tf.concat([disc_ids, prop_ids], 1)
+    # new_ids = tf.concat([prop_ids, disc_ids], 1)
     return last_used_id, new_ids

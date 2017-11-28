@@ -119,7 +119,7 @@ class AIRCell(snt.RNNCore):
         return transition_inpt
 
     def _compute_what(self, inpt, img, where_code):
-        cropped = self._spatial_transformer(img, where_code)
+        cropped = self._spatial_transformer(img, logits=where_code)
         flat_crop = snt.BatchFlatten()(cropped)
         what_params = self._glimpse_encoder(flat_crop)
         what_distrib = self._what_distrib(what_params)
@@ -196,9 +196,11 @@ class PropagatingAIRCell(AIRCell):
         where_tm1 = inpt[1]
 
         loc, scale = self._transform_estimator(hidden_output)
-        loc += where_tm1
+        # loc += where_tm1
+        loc = where_tm1 + snt.Linear(4)(loc)
         where_distrib = NormalWithSoftplusScale(loc, scale,
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
+
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 
     def _compute_presence(self, inpt, presence, hidden_output):

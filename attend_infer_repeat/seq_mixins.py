@@ -289,20 +289,9 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         propagate_outputs, inner_prop_state = self._unroll_timestep(prev_latents, prev_hidden_state, propagation_cell)
         prev_hidden_state[-1] = inner_prop_state
 
-        # propagation can only forget objects, so it's ok if we just reuse ids from the previous timestep
-        # propagated_ids = prev_ids
-
         # # 2) discover new objects
         discovery_outputs, inner_discovery_state = self._unroll_timestep(None, prev_hidden_state, discovery_cell)
-        #
-        # # discovery ids
-        # discovery_presence = stack_states([[do[-1]] for do in discovery_outputs])[0]
-        # id_increments = tf.cumsum(discovery_presence, axis=1)
-        #
-        # discovery_id = id_increments + last_used_id[:, tf.newaxis]
-        # last_used_id += tf.maximum(id_increments[:, -1], 0.)
-        #
-        # obj_id = tf.concat((propagated_ids, discovery_id), 1)
+        prev_hidden_state[-1] = inner_discovery_state
 
         def get_pres(outs):
             p = [o[-1] for o in outs]
@@ -313,16 +302,19 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         last_used_id, new_obj_id = compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres)
 
         # 3) merge outputs of the two models
-        hidden_outputs = propagate_outputs + discovery_outputs
-        # hidden_outputs = discovery_outputs + propagate_outputs
+        # TODO: reversed order; validate
+        # hidden_outputs = propagate_outputs + discovery_outputs
+        hidden_outputs = discovery_outputs + propagate_outputs
+
         hidden_outputs = stack_states(hidden_outputs)
-        # 4) filter; move present states to the beginning, but maintain ordering, e.g. propagated objects
+        # 4) move present states to the beginning, but maintain ordering, e.g. propagated objects
         # should come before the new ones
         presence = hidden_outputs[-1]
         hidden_outputs.append(new_obj_id)
 
-        # merge, partition, split to avoid partitioning each vec separately
+        # # merge, partition, split to avoid partitioning each vec separately
         hidden_outputs = select_present_list(hidden_outputs, presence[..., 0], self.effective_batch_size)
+        # # keep only self.max_steps latents
         hidden_outputs = [ho[:, :self.max_steps] for ho in hidden_outputs]
 
         # reset ids of forgotten objects to -1

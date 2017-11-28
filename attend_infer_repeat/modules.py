@@ -45,15 +45,7 @@ class StochasticTransformParam(snt.AbstractModule):
         seq = snt.Sequential([flatten, mlp])
         params = seq(inpt)
 
-        scale_logit, shift_logit = tf.split(params[..., :4], 2, 1)
-
-        constant, relative = self._min_glimpse_size, self._max_glimpse_size - self._min_glimpse_size
-        scale = constant + relative * tf.nn.sigmoid(scale_logit)
-
-        shift = tf.nn.tanh(shift_logit)
-        locs = tf.concat((scale, shift), -1)
-
-        return locs, params[..., 4:] + self._scale_bias
+        return params[..., :4], params[..., 4:] + self._scale_bias
 
 
 class Encoder(snt.AbstractModule):
@@ -99,15 +91,27 @@ class SpatialTransformer(snt.AbstractModule):
         grid_coords = self._warper(transform_params)
         return tf_resampler(img, grid_coords)
 
-    def _build(self, img, transform_params):
+    def _build(self, img, sentinel=None, coords=None, logits=None):
         """Assume that `transform_param` has the shape of (..., n_params) where n_params = n_scales + n_shifts
         and:
             scale = transform_params[..., :n_scales]
             shift = transform_params[..., n_scales:n_scales+n_shifts]
         """
 
-        axis = transform_params.shape.ndims - 1
-        sx, sy, tx, ty = tf.split(transform_params, 4, axis=axis)
+        if sentinel is not None:
+            raise ValueError('Either coords or logits must be given by kwargs!')
+
+        if coords is not None and logits is not None:
+            raise ValueError('Please give eithe coords or logits, not both!')
+
+        if coords is None and logits is None:
+            raise ValueError('Please give coords or logits!')
+
+        if coords is None:
+            coords = self.to_coords(logits)
+
+        axis = coords.shape.ndims - 1
+        sx, sy, tx, ty = tf.split(coords, 4, axis=axis)
 
         sx = expand_around_zero(sx, 1e-4)
         sy = expand_around_zero(sy, 1e-4)
@@ -123,6 +127,17 @@ class SpatialTransformer(snt.AbstractModule):
             transform_params = tf.unstack(transform_params, axis=1)
             samples = [self._sample_image(img, tp) for tp in transform_params]
             return tf.stack(samples, axis=1)
+
+    @staticmethod
+    def to_coords(logits):
+
+        axis = logits.shape.ndims - 1
+        scale_logit, shift_logit = tf.split(logits, 2, axis)
+
+        scale = tf.nn.sigmoid(scale_logit)
+        shift = tf.nn.tanh(shift_logit)
+        coords = tf.concat((scale, shift), -1)
+        return coords
 
 
 class StepsPredictor(snt.AbstractModule):
@@ -173,7 +188,7 @@ class AIRDecoder(snt.AbstractModule):
     def _build(self, what, where, presence):
         batch = functools.partial(snt.BatchApply, n_dims=self._batch_dims)
         glimpse = batch(self._glimpse_decoder)(what)
-        inversed = batch(self._inverse_transformer)(glimpse, where)
+        inversed = batch(self._inverse_transformer)(glimpse, logits=where)
         presence = presence[..., tf.newaxis, tf.newaxis]
         canvas = tf.reduce_sum(presence * inversed, axis=-4)[..., 0]
         return canvas, glimpse
