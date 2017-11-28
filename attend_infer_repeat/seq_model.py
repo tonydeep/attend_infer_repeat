@@ -100,7 +100,7 @@ class SeqAIRModel(object):
         tas = res[7:]
 
         # TODO: prettify
-        self.output_names = 'obj_id canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
+        self.output_names = 'obj_id step_log_prob canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
                             ' kl_where_per_sample kl_steps_per_sample kl_per_sample elbo_per_sample num_step_per_sample' \
                             ' importance_weight iw_elbo'.split()
         for name, ta in zip(self.cell.output_names + self.output_names, tas):
@@ -158,8 +158,10 @@ class SeqAIRModel(object):
 
         self.baseline = self._make_baseline(self.cumulative_elbo_per_sample)
 
-        num_steps_posterior = NumStepsDistribution(self.presence_prob[..., 0])
-        posterior_num_steps_log_prob = num_steps_posterior.log_prob(self.num_step_per_sample)
+        # TODO: prop_cell produces steps with beroulli probabilities, below is applicable only to discovery - fix
+        # num_steps_posterior = NumStepsDistribution(self.presence_prob[..., 0])
+        # posterior_num_steps_log_prob = num_steps_posterior.log_prob(self.num_step_per_sample)
+        posterior_num_steps_log_prob = self.step_log_prob[..., 0]
         posterior_num_steps_log_prob = tf.reduce_sum(posterior_num_steps_log_prob, 0)
 
         if self.importance_resample:
