@@ -145,6 +145,7 @@ class AIRCell(snt.RNNCore):
     def _maybe_transition(self, presence, inpt, state, new_state):
         bool_pres = tf.cast(presence, bool)
         new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
+        new_state[-2] = presence
         return new_state
 
     def _build(self, inpt, state):
@@ -219,6 +220,7 @@ class PropagatingAIRCell(AIRCell):
         presence_tm1 = inpt[-1]
         bool_pres = tf.cast(presence_tm1, bool)
         new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
+        new_state[-2] = presence
         return new_state
 
 

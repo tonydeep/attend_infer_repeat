@@ -276,19 +276,17 @@ def broadcast_against(tensor, against_expr):
 # [ 1  2  4  7  9 10]
 # [0, 1, 1, 0, 0, 1]
 
-def select_present(x, presence, batch_size=1, name='select_present'):
+def select_present(x, presence, batch_size=None, name='select_present'):
     with tf.variable_scope(name):
         presence = 1 - tf.to_int32(presence)  # invert mask
 
-        bs = x.get_shape()[0]
-        if bs != None:  # here type(bs) is tf.Dimension and == is ok
-            batch_size = int(bs)
+        if batch_size is None:
+            batch_size = int(x.shape[0])
 
         num_partitions = 2 * batch_size
         r = tf.range(0, num_partitions,  2)
         r.set_shape(tf.TensorShape(batch_size))
         r = broadcast_against(r, presence)
-
         presence += r
 
         selected = tf.dynamic_partition(x, presence, num_partitions)
@@ -298,7 +296,7 @@ def select_present(x, presence, batch_size=1, name='select_present'):
     return selected
 
 
-def select_present_list(tensor_list, presence, batch_size=1, name='select_present_many'):
+def select_present_list(tensor_list, presence, batch_size=None, name='select_present_many'):
     """Like `select_present`, but handles a list of tensors.
 
      It concatenates the tensors along the last dimension, calls `select_present` only once
