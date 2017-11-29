@@ -5,34 +5,33 @@ from attend_infer_repeat.mnist_model import SeqAIRonMNIST, KLBySamplingMixin
 from attend_infer_repeat.experiment_tools import optimizer_from_string
 from attend_infer_repeat.ops import maybe_getattr
 from attend_infer_repeat.seq_mixins import NaiveSeqAirMixin, SeparateSeqAIRMixin
+from attend_infer_repeat import tf_flags as flags
 
-flags = tf.flags
-
-tf.flags.DEFINE_float('step_bias', 1., '')
-tf.flags.DEFINE_float('transform_var_bias', -3., '')
-tf.flags.DEFINE_float('learning_rate', 1e-5, '')
-tf.flags.DEFINE_float('output_multiplier', .25, '')
-tf.flags.DEFINE_float('init_step_success_prob', 1. - 1e-7, '')
-tf.flags.DEFINE_float('final_step_success_prob', 1e-5, '')
-tf.flags.DEFINE_float('n_anneal_steps_loss', 1e3, '')
-tf.flags.DEFINE_float('min_glimpse_size', 0., '')
-tf.flags.DEFINE_float('where_prior_scale', 1., '')
-tf.flags.DEFINE_integer('n_iw_samples', 5, '')
-tf.flags.DEFINE_integer('n_steps_per_image', 3, '')
-tf.flags.DEFINE_boolean('importance_resample', False, '')
-tf.flags.DEFINE_boolean('condition_on_prev', False, '')
-tf.flags.DEFINE_boolean('condition_on_latents', False, '')
-tf.flags.DEFINE_boolean('transition_only_on_object', False, '')
-tf.flags.DEFINE_boolean('prior_around_prev', False, '')
-tf.flags.DEFINE_boolean('separate', False, '')
-tf.flags.DEFINE_string('opt', '', '')
-tf.flags.DEFINE_string('transition', 'LSTM', '')
-tf.flags.DEFINE_string('time_transition', None, '')
+flags.DEFINE_float('step_bias', 1., '')
+flags.DEFINE_float('transform_var_bias', -3., '')
+flags.DEFINE_float('learning_rate', 1e-5, '')
+flags.DEFINE_float('output_multiplier', .25, '')
+flags.DEFINE_float('init_step_success_prob', 1. - 1e-7, '')
+flags.DEFINE_float('final_step_success_prob', 1e-5, '')
+flags.DEFINE_float('n_anneal_steps_loss', 1e3, '')
+flags.DEFINE_float('min_glimpse_size', 0., '')
+flags.DEFINE_float('where_prior_scale', 1., '')
+flags.DEFINE_integer('n_iw_samples', 5, '')
+flags.DEFINE_integer('n_steps_per_image', 3, '')
+flags.DEFINE_boolean('importance_resample', False, '')
+flags.DEFINE_boolean('condition_on_prev', False, '')
+flags.DEFINE_boolean('condition_on_latents', False, '')
+flags.DEFINE_boolean('transition_only_on_object', False, '')
+flags.DEFINE_boolean('prior_around_prev', False, '')
+flags.DEFINE_boolean('separate', False, '')
+flags.DEFINE_string('opt', '', '')
+flags.DEFINE_string('transition', 'LSTM', '')
+flags.DEFINE_string('time_transition', None, '')
 
 
 def load(img, num):
 
-    f = tf.flags.FLAGS
+    f = flags.FLAGS
 
     n_hidden = 32 * 8
     n_layers = 2

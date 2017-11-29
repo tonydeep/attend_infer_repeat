@@ -9,6 +9,8 @@ import tensorflow as tf
 from evaluation import ProgressFig, make_logger
 from experiment_tools import load, init_checkpoint, parse_flags, print_flags, set_flags_if_notebook, is_notebook
 
+from attend_infer_repeat import tf_flags
+
 import matplotlib.pyplot as plt
 
 
@@ -21,23 +23,22 @@ sys.path.append('../')
 # In[ ]:
 
 # Define flags
-flags = tf.flags
 
-flags.DEFINE_string('data_config', 'configs/seq_mnist_data.py', '')
-flags.DEFINE_string('model_config', 'configs/seq_vimco.py', '')
-flags.DEFINE_string('results_dir', '../checkpoints', '')
-flags.DEFINE_string('run_name', 'test_run', '')
+tf_flags.DEFINE_string('data_config', 'configs/seq_mnist_data.py', '')
+tf_flags.DEFINE_string('model_config', 'configs/seq_vimco.py', '')
+tf_flags.DEFINE_string('results_dir', '../checkpoints', '')
+tf_flags.DEFINE_string('run_name', 'test_run', '')
 
-flags.DEFINE_integer('batch_size', 64, '')
+tf_flags.DEFINE_integer('batch_size', 64, '')
 
-flags.DEFINE_integer('summary_every', 1000, '')
-flags.DEFINE_integer('log_every', 5000, '')
-flags.DEFINE_integer('save_every', 5000, '')
-flags.DEFINE_integer('max_train_iter', int(3 * 1e5), '')
-flags.DEFINE_boolean('resume', False, '')
-flags.DEFINE_boolean('log_at_start', False, '')
+tf_flags.DEFINE_integer('summary_every', 1000, '')
+tf_flags.DEFINE_integer('log_every', 5000, '')
+tf_flags.DEFINE_integer('save_every', 5000, '')
+tf_flags.DEFINE_integer('max_train_iter', int(3 * 1e5), '')
+tf_flags.DEFINE_boolean('resume', False, '')
+tf_flags.DEFINE_boolean('log_at_start', False, '')
 
-flags.DEFINE_float('eval_size_fraction', .01, '')
+tf_flags.DEFINE_float('eval_size_fraction', .01, '')
 
 
 # In[ ]:
@@ -61,7 +62,7 @@ set_flags_if_notebook(
 
 # Parse flags
 parse_flags()
-F = flags.FLAGS
+F = tf_flags.FLAGS
 
 
 # In[ ]:

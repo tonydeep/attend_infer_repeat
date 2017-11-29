@@ -41,6 +41,8 @@ class SeqModelTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
+        cls.timer_dict = dict()
+
         cls.imgs = tf.placeholder(tf.float32, (cls.n_timesteps, cls.batch_size,) + cls.img_size, name='inpt')
         cls.nums = tf.placeholder(tf.float32, (cls.n_timesteps, cls.batch_size, cls.n_steps_per_image), name='nums')
 
@@ -57,14 +59,21 @@ class SeqModelTest(unittest.TestCase):
 
         print 'Constructed model'
 
-
         cls.train_step = cls.air.train_step(cls.learning_rate, nums=cls.nums)
         cls.loss = tf.reduce_mean(cls.air.iw_elbo)
         cls.loss = cls.air.nelbo / cls.air.n_timesteps
         print 'Computed gradients'
-        time_end = time.clock()
-        elapsed_time = time_end - time_start
-        print 'Building model took {}s'.format(elapsed_time)
+        cls.register_time(time_start, time.clock(), 'Building model')
+
+    @classmethod
+    def tearDownClass(cls):
+        for k, v in cls.timer_dict.iteritems():
+            print '{} took {}s'.format(k, v)
+        super(SeqModelTest, cls).tearDownClass()
+
+    @classmethod
+    def register_time(cls, start_time, end_time, name):
+        cls.timer_dict[name] = end_time - start_time
 
     def test_forward(self):
         sess = tf.Session()
@@ -76,10 +85,7 @@ class SeqModelTest(unittest.TestCase):
 
         rnn_outputs, outputs, l = sess.run([self.rnn_outputs, self.outputs, self.loss], {self.imgs: xx})
 
-        time_end = time.clock()
-        elapsed_time = time_end - time_start
-        print 'Forward pass took {}s'.format(elapsed_time)
-
+        self.register_time(time_start, time.clock(), 'Forward pass')
         print 'rnn_outputs:'
         for k, v in rnn_outputs.iteritems():
             print k, v.shape
@@ -111,10 +117,7 @@ class SeqModelTest(unittest.TestCase):
         time_start = time.clock()
 
         sess.run(self.train_step, {self.imgs: xx})
-
-        time_end = time.clock()
-        elapsed_time = time_end - time_start
-        print 'Backward pass took {}s'.format(elapsed_time)
+        self.register_time(time_start, time.clock(), 'Backward pass')
 
         print 'Done'
 
@@ -124,21 +127,21 @@ class SeqModelTest(unittest.TestCase):
 
 
 
-## Naive implt
+# # Naive implt
 # Building model took 27.32111s 26.776982s 27.426379s
 # Backward pass took 1.70163s 1.665743s 1.711467s
 # Forward pass took 0.33428s 0.338653s 0.348015s
-
-## Mering impl:
-# Building model took 21.650689s 22.196988s 22.456464s
-# Backward pass took 1.378777 1.351987s 1.347649s
-# Forward pass took 0.30169 0.292079s 0.293363s
-
-## No partitioning:
+#
+# # Mering impl:
+# Building model took 22.111965s 21.519563s 21.664563s
+# Backward pass took 1.366654s 1.505577s 1.358077s
+# Forward pass took 0.293968s 0.28257s 0.309403s
+#
+# # No partitioning:
 # Building model took 21.181945s 21.53531s 21.635552s
 # Backward pass took 1.303993s 1.281379s 1.293466s
 # Forward pass took 0.303936s 0.285393s 0.292647s
-
+#
 # ## Conclusions:
 # Partitioning is an expensive operation and we should avoid calling it whenever we can
 # but we use it if we have to, and for now there's no other alternative

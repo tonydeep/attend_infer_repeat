@@ -283,8 +283,8 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         prop_transition = transition.__class__(discovery_cell._n_hidden)
         input_encoder = lambda: discovery_cell._input_encoder
         glimpse_encoder = lambda: discovery_cell._glimpse_encoder
-        transform_estimator = lambda: discovery_cell._transform_estimator
-        steps_predictor = lambda: discovery_cell._steps_predictor
+        # transform_estimator = lambda: discovery_cell._transform_estimator
+        # steps_predictor = lambda: discovery_cell._steps_predictor
 
         propagation_cell = PropagatingAIRCell(self.img_size, self.glimpse_size, self.n_what, prop_transition,
                            input_encoder, glimpse_encoder, transform_estimator, steps_predictor,

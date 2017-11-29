@@ -6,7 +6,9 @@ import re
 import shutil
 import json
 import subprocess
-import tensorflow as tf
+
+sys.path.append('../')
+from attend_infer_repeat import tf_flags
 
 FLAG_FILE = 'flags.json'
 
@@ -158,7 +160,7 @@ def _load_flags(*config_paths):
 
 
 def parse_flags():
-    f = tf.flags.FLAGS
+    f = tf_flags.FLAGS
     args = sys.argv[1:]
 
     old_flags = f.__dict__['__flags'].copy()
@@ -174,12 +176,12 @@ def parse_flags():
 
 
 def _restore_flags(flags):
-    tf.flags.FLAGS.__dict__['__flags'] = flags
-    tf.flags.FLAGS.__dict__['__parsed'] = True
+    tf_flags.FLAGS.__dict__['__flags'] = flags
+    tf_flags.FLAGS.__dict__['__parsed'] = True
 
 
 def print_flags():
-    flags = tf.flags.FLAGS.__flags
+    flags = tf_flags.FLAGS.__flags
 
     print 'Flags:'
     keys = sorted(flags.keys())
@@ -228,6 +230,7 @@ def is_notebook():
 
 
 def optimizer_from_string(opt_string, build=True):
+    import tensorflow as tf
 
     res = re.search(r'([a-z|A-Z]+)\(?(.*)\)?$', opt_string).groups()
     opt_name = res[0]
@@ -258,11 +261,8 @@ def get_session():
 
 if __name__ == '__main__':
 
-    import tensorflow as tf
-    flags = tf.flags
-
-    tf.flags.DEFINE_integer('int_flag', -2, 'some int')
-    tf.flags.DEFINE_string('string_flag', 'abc', 'some string')
+    tf_flags.DEFINE_integer('int_flag', -2, 'some int')
+    tf_flags.DEFINE_string('string_flag', 'abc', 'some string')
 
     checkpoint_dir = '../checkpoints/setup'
     data_config = 'configs/static_mnist_data.py'
@@ -282,7 +282,7 @@ if __name__ == '__main__':
 
     print
     print 'tf.flags:'
-    for k, v in tf.flags.FLAGS.__flags.iteritems():
+    for k, v in tf_flags.FLAGS.__flags.iteritems():
         print k, v
     # batch_size = 64
     # data_dict = load(data_config, batch_size)

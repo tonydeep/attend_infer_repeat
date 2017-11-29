@@ -196,8 +196,8 @@ class PropagatingAIRCell(AIRCell):
         where_tm1 = inpt[1]
 
         loc, scale = self._transform_estimator(hidden_output)
-        # loc += where_tm1
-        loc = where_tm1 + snt.Linear(4)(loc)
+        loc += where_tm1
+        # loc = where_tm1 + snt.Linear(4)(loc)
         where_distrib = NormalWithSoftplusScale(loc, scale,
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
 

@@ -2,19 +2,18 @@ import tensorflow as tf
 from attrdict import AttrDict
 
 from attend_infer_repeat.data import load_data as _load_data, tensors_from_data as _tensors
+from attend_infer_repeat import tf_flags as flags
 
-flags = tf.flags
-
-tf.flags.DEFINE_string('train_path', 'mnist_train.pickle', '')
-tf.flags.DEFINE_string('valid_path', 'mnist_validation.pickle', '')
-tf.flags.DEFINE_integer('seq_len', 0, '')
+flags.DEFINE_string('train_path', 'mnist_train.pickle', '')
+flags.DEFINE_string('valid_path', 'mnist_validation.pickle', '')
+flags.DEFINE_integer('seq_len', 0, '')
 
 axes = {'imgs': 0, 'labels': 0, 'nums': 1}
 
 
 def load(batch_size):
 
-    f = tf.flags.FLAGS
+    f = flags.FLAGS
 
     valid_data = _load_data(f.valid_path)
     train_data = _load_data(f.train_path)
