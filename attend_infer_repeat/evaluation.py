@@ -10,6 +10,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
+from attrdict import AttrDict
+
 from modules import SpatialTransformer
 
 
@@ -56,28 +58,29 @@ class ProgressFig(object):
 
     def plot_still(self, global_step=None, save=True):
 
-        xx, pred_canvas, pred_crop, prob, pres, w = self._air_outputs(single_timestep=True)
+        o = self._air_outputs(single_timestep=True)
         fig, axes = self._make_fig(self.n_steps + 2, self.n_samples)
 
         # ground-truth
         for i, ax in enumerate(axes[0]):
-            ax.imshow(xx[i], cmap='gray', vmin=0, vmax=1)
+            ax.imshow(o.obs[i], cmap='gray', vmin=0, vmax=1)
 
         # reconstructions with marked steps
         for i, ax in enumerate(axes[1]):
-            ax.imshow(pred_canvas[i], cmap='gray', vmin=0, vmax=1)
+            ax.imshow(o.canvas[i], cmap='gray', vmin=0, vmax=1)
             for j, c in zip(xrange(self.n_steps), self._BBOX_COLORS):
-                if pres[i, j] > .5:
-                    self._rect(ax, w[i, j], c)
+                if o.presence[i, j] > .5:
+                    self._rect(ax, o.where[i, j], c)
 
         # glimpses
         for i, ax_row in enumerate(axes[2:]):
             for j, ax in enumerate(ax_row):
-                ax.imshow(pres[j, i] * pred_crop[j, i], cmap='gray')
-                ax.set_title('{:d} with p({:d}) = {:.02f}'.format(int(pres[j, i]), i + 1, prob[j, i]),
+                ax.imshow(o.presence[j, i] * o.glimpse[j, i], cmap='gray')
+                ax.set_title('{:d} with p({:d}) = {:.02f}'.format(int(o.presence[j, i]), i + 1,
+                                                                  o.posterior_step_prob[j, i]),
                              fontsize=4 * self.fig_scale)
 
-                if pres[j, i] > .5:
+                if o.presence[j, i] > .5:
                     for spine in 'bottom top left right'.split():
                         ax.spines[spine].set_color(self._BBOX_COLORS[i])
                         ax.spines[spine].set_linewidth(2.)
@@ -95,20 +98,25 @@ class ProgressFig(object):
 
     def plot_seq(self, global_step=None, save=True):
 
-        xx, pred_canvas, pred_crop, prob, pres, w = self._air_outputs(n_samples=self.seq_n_samples)
+        o = self._air_outputs(n_samples=self.seq_n_samples)
         fig, axes = self._make_fig(2 * self.seq_n_samples, self.n_timesteps)
         axes = axes.reshape((2 * self.seq_n_samples, self.n_timesteps))
-        n = np.random.randint(xx.shape[1])
 
         for t, ax in enumerate(axes.T):
             for n in xrange(self.seq_n_samples):
-                pres_time = pres[t, n, :]
-                ax[2 * n].imshow(xx[t, n], cmap='gray', vmin=0., vmax=1.)
-                ax[2 * n + 1].set_title(str(int(np.round(pres_time.sum()))), fontsize=6 * self.fig_scale)
-                ax[2 * n + 1].imshow(pred_canvas[t, n], cmap='gray', vmin=0., vmax=1.)
+                pres_time = o.presence[t, n, :]
+                ax[2 * n].imshow(o.obs[t, n], cmap='gray', vmin=0., vmax=1.)
+
+                n_obj = str(int(np.round(pres_time.sum())))
+                id_string = ('{}{}'.format(c, int(i)) for c, i in zip(self._BBOX_COLORS, o.obj_id[t, n]) if i > -1.)
+                id_string = ', '.join(id_string)
+                title = '{}: {}'.format(n_obj, id_string)
+
+                ax[2 * n + 1].set_title(title, fontsize=6 * self.fig_scale)
+                ax[2 * n + 1].imshow(o.canvas[t, n], cmap='gray', vmin=0., vmax=1.)
                 for i, (p, c) in enumerate(zip(pres_time, self._BBOX_COLORS)):
                     if p > .5:
-                        self._rect(ax[2 * n + 1], w[t, n, i], c, line_width=1.)
+                        self._rect(ax[2 * n + 1], o.where[t, n, i], c, line_width=1.)
 
         for n in xrange(self.seq_n_samples):
             axes[2 * n, 0].set_ylabel('gt #{:d}'.format(n))
@@ -133,29 +141,31 @@ class ProgressFig(object):
             n_samples = self.n_samples
 
         if not getattr(self, '_air_tensors', None):
-            names = 'canvas glimpse posterior_step_prob presence where'.split()
-            tensors = [getattr(self.air, 'resampled_' + name, getattr(self.air, name)) for name in names]
-            tensors[2] = tensors[2][..., 1:]
+            names = 'canvas glimpse posterior_step_prob presence where obj_id'.split()
+            tensors = {name: getattr(self.air, 'resampled_' + name, getattr(self.air, name)) for name in names}
+            tensors = AttrDict(tensors)
+            tensors.posterior_step_prob = tensors.posterior_step_prob[..., 1:]
 
             # logits to coords
-            tensors[-1] = SpatialTransformer.to_coords(tensors[-1])
-            self._air_tensors = [self.air.obs] + tensors
+            tensors.where = SpatialTransformer.to_coords(tensors.where)
+            tensors['obs'] = self.air.obs
+            self._air_tensors = tensors
 
         res = self.sess.run(self._air_tensors)
         bs = np.random.choice(self.air.batch_size, size=n_samples, replace=False)
         ts = slice(None)
         if single_timestep:
-            n_timesteps = res[0].shape[0]
+            n_timesteps = res.obs.shape[0]
             ts = np.random.choice(n_timesteps, size=self.n_samples, replace=True)
 
-        for i, r in enumerate(res):
-            if self.with_time:
-                res[i] = r[ts, bs]
-            else:
-                res[i] = r[bs]
+        for k, v in res.iteritems():
+            if v.shape[-1] == 1:
+                v = v[..., 0]
 
-            if res[i].shape[-1] == 1:
-                res[i] = res[i][..., 0]
+            if self.with_time:
+                res[k] = v[ts, bs]
+            else:
+                res[k] = v[bs]
 
         return res
 

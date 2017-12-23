@@ -22,11 +22,11 @@ flags.DEFINE_boolean('importance_resample', False, '')
 flags.DEFINE_boolean('condition_on_prev', False, '')
 flags.DEFINE_boolean('condition_on_latents', False, '')
 flags.DEFINE_boolean('transition_only_on_object', False, '')
-flags.DEFINE_boolean('prior_around_prev', False, '')
 flags.DEFINE_boolean('separate', False, '')
 flags.DEFINE_string('opt', '', '')
 flags.DEFINE_string('transition', 'LSTM', '')
 flags.DEFINE_string('time_transition', None, '')
+flags.DEFINE_string('prior_transition', None, '')
 
 
 def load(img, num):
@@ -39,6 +39,7 @@ def load(img, num):
 
     transition = maybe_getattr(snt, f.transition)
     time_transition = maybe_getattr(snt, f.time_transition)
+    prior_transition = maybe_getattr(snt, f.prior_transition)
 
     seq_mixin = NaiveSeqAirMixin
     if f.separate:
@@ -52,6 +53,7 @@ def load(img, num):
         where_prior_scale = f.where_prior_scale
         transition_class = transition
         time_transition_class = time_transition
+        prior_rnn_class = prior_transition
 
     air = SeqAIRwithVIMCO(img,
                       max_steps=f.n_steps_per_image,
@@ -67,7 +69,6 @@ def load(img, num):
                       output_multiplier=f.output_multiplier,
                       condition_on_prev=f.condition_on_prev,
                       condition_on_latents=f.condition_on_latents,
-                      prior_around_prev=f.prior_around_prev,
                       transition_only_on_object=f.transition_only_on_object)
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)

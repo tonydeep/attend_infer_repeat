@@ -20,12 +20,13 @@ class SeqAIRModel(object):
     """
 
     time_transition_class = None
+    prior_rnn_class = None
 
     def __init__(self, obs, max_steps, glimpse_size,
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
                  output_std=1., output_multiplier=1., iw_samples=1,
-                 condition_on_prev=False, prior_around_prev=False,
+                 condition_on_prev=False,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -54,7 +55,6 @@ class SeqAIRModel(object):
         self.iw_samples = iw_samples
 
         self.condition_on_prev = condition_on_prev
-        self.prior_around_prev = prior_around_prev
 
         self.debug = debug
 
@@ -97,12 +97,14 @@ class SeqAIRModel(object):
         res = self._time_loop()
         self.final_state = res[2]
         self.cumulative_imp_weights = res[4]
-        tas = res[7:]
+        tas = res[8:]
 
         # TODO: prettify
         self.output_names = 'obj_id step_log_prob canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
                             ' kl_where_per_sample kl_steps_per_sample kl_per_sample elbo_per_sample num_step_per_sample' \
-                            ' importance_weight iw_elbo'.split()
+                            ' importance_weight iw_elbo prior_where_loc prior_where_scale prior_what_loc' \
+                            ' prior_what_scale'.split()
+
         for name, ta in zip(self.cell.output_names + self.output_names, tas):
             output = ta.stack()
             setattr(self, name, output)
