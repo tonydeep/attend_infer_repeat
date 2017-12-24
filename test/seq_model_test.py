@@ -52,7 +52,6 @@ class SeqModelTest(unittest.TestCase):
         cls.air = AIRModelWithPriors(cls.imgs, cls.n_steps_per_image, cls.crop_size, cls.n_what,
                                      condition_on_prev=True,
                                      condition_on_latents=True,
-                                     prior_around_prev=True,
                                      iw_samples=cls.iw_samples, **cls.modules)
         cls.rnn_outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.cell.output_names})
         cls.outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.output_names})

@@ -419,8 +419,14 @@ def compute_object_ids(last_used_id, prev_ids, propagated_pres, discovery_pres):
     last_used_id += id_increments[:, -1]
 
     disc_ids = disc_ids * discovery_pres - (1 - discovery_pres)
-
-    # TODO: reversed order: update unit test
-    new_ids = tf.concat([disc_ids, prop_ids], 1)
-    # new_ids = tf.concat([prop_ids, disc_ids], 1)
+    new_ids = tf.concat([prop_ids, disc_ids], 1)
     return last_used_id, new_ids
+
+
+def update_num_obj_counts(num_counts, obj_counts):
+    batch_size = int(obj_counts.shape[0])
+    obj_counts = tf.expand_dims(tf.to_int32(obj_counts), -1)
+    batch_idx = tf.expand_dims(tf.range(batch_size), -1)
+    obj_count_idx = tf.concat((batch_idx, obj_counts), -1)
+    count_updates = tf.scatter_nd(obj_count_idx, tf.ones([batch_size]), tf.shape(num_counts))
+    return num_counts + count_updates

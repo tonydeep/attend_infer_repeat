@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from tensorflow.contrib.distributions import Bernoulli, Geometric
+from tensorflow.contrib.distributions import Bernoulli, Geometric, Categorical
 
 from ops import clip_preserve, sample_from_tensor
 
@@ -125,10 +125,58 @@ class NumStepsDistribution(object):
         prob = self.prob(samples)
         
         prob = clip_preserve(prob, 1e-16, prob)
-        #prob = clip_preserve(prob, 1e-32, prob)
         return tf.log(prob)
 
 
+class PoissonBinomialDistribution(Categorical):
+    """Like Binomial, but every event admits different success probabilities
+
+    Transforms independent Bernoulli probabilities of an event = 1 into p(n) where n is the sum of all events"""
+
+    def __init__(self, bernoulli_probs, dtype=tf.int32, validate_args=False, allow_nan_stats=True, eps=1e-8):
+        """
+
+        :param bernoulli_probs: tensor; Bernoulli success probabilities
+        """
+        self._bernoulli_probs = tf.convert_to_tensor(bernoulli_probs)
+        shape = self._bernoulli_probs.shape
+        assert shape.ndims >= 2, 'Works only with batches and requires ndim >= 2 but got shape {}'.format(
+            shape.as_list())
+        pdf = self._pdf_by_dft(self._bernoulli_probs)
+        if eps > 0.:
+            pdf = clip_preserve(pdf, eps, 1. - eps)
+            pdf /= tf.reduce_sum(pdf, -1, keep_dims=True)
+        self._pdf = pdf
+        super(PoissonBinomialDistribution, self).__init__(probs=self._pdf,
+                                                          dtype=dtype,
+                                                          validate_args=validate_args,
+                                                          allow_nan_stats=allow_nan_stats)
+    @staticmethod
+    def _pdf_by_dft(bernoulli_probs):
+        ps = tf.expand_dims(tf.complex(bernoulli_probs, 0.), -2)
+
+        n_events = int(ps.shape[-1])
+        denom = tf.complex(tf.to_float(n_events + 1), 0.)
+        exp_arg = 2j * np.pi / denom
+        C = tf.exp(exp_arg)
+        ks = tf.range(n_events + 1, dtype=tf.float32)
+        mlk = - tf.matmul(ks[:, tf.newaxis], ks[np.newaxis, :])
+        Cmlk = tf.expand_dims(tf.pow(C, tf.complex(mlk, 0.)), 0)
+        Cl = tf.pow(C, tf.complex(ks, 0.)) - 1
+        Cl = tf.expand_dims(Cl, -1)
+
+        def mul_func(x):
+            return tf.matmul(Cl, x)
+
+        batch_size = ps.shape.as_list()[0]
+        if batch_size is None:
+            batch_size = 10
+
+        qsp = 1 + tf.map_fn(mul_func, ps, parallel_iterations=batch_size)
+        prod_q = tf.expand_dims(tf.reduce_prod(qsp, -1), -2)
+
+        pdf = tf.reduce_sum(Cmlk * prod_q, -1) / denom
+        return tf.real(pdf)
 
 
 

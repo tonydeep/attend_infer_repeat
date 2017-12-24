@@ -69,6 +69,7 @@ class AIRCell(snt.RNNCore):
             self._n_what,  # what
             self._n_transform_param,  # where
             1,  # presence
+            1,  # presence_logit
             self._transition.state_size,  # hidden state of the rnn
         ]
 
@@ -100,7 +101,9 @@ class AIRCell(snt.RNNCore):
 
         flat_img = tf.reshape(img, (batch_size, self._n_pix))
         init_presence = tf.ones((batch_size, 1), dtype=tf.float32) * self._init_presence_value
-        return [flat_img, what_code, where_code, init_presence, hidden_state]
+        init_presence_logit = tf.clip_by_value(init_presence, 1e-4, 1. - 1e-4)
+        init_presence_logit = tf.log(init_presence_logit) - tf.log(1 - init_presence_logit)
+        return [flat_img, what_code, where_code, init_presence, init_presence_logit, hidden_state]
 
     def _prepare_rnn_inputs(self, inpt, img, what, where, presence):
         transition_inpt = self._input_encoder(img)
@@ -131,7 +134,7 @@ class AIRCell(snt.RNNCore):
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 
-    def _compute_presence(self, inpt, presence, hidden_output):
+    def _compute_presence(self, inpt, presence, presence_logit, hidden_output):
         presence_logit = self._steps_predictor(hidden_output)
         presence_prob = tf.nn.sigmoid(presence_logit)
 
@@ -140,7 +143,7 @@ class AIRCell(snt.RNNCore):
         new_presence = presence_distrib.sample()
         presence *= new_presence
 
-        return presence, presence_prob
+        return presence, presence_prob, presence_logit
 
     def _maybe_transition(self, presence, inpt, state, new_state):
         bool_pres = tf.cast(presence, bool)
@@ -151,7 +154,7 @@ class AIRCell(snt.RNNCore):
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
-        img_flat, what_code, where_code, presence, hidden_state = state
+        img_flat, what_code, where_code, presence, presence_logit, hidden_state = state
 
         img_inpt = img_flat
         img = tf.reshape(img_inpt, (-1,) + tuple(self._img_size))
@@ -164,14 +167,15 @@ class AIRCell(snt.RNNCore):
             where_code, where_loc, where_scale = self._compute_where(inpt, hidden_output)
 
         with tf.variable_scope('presence'):
-            presence, presence_prob = self._compute_presence(inpt, presence, hidden_output)
+            presence, presence_prob, presence_logit\
+                = self._compute_presence(inpt, presence, presence_logit, hidden_output)
 
         with tf.variable_scope('what'):
             what_code, what_loc, what_scale = self._compute_what(inpt, img, where_code)
 
         output = [what_code, what_loc, what_scale, where_code, where_loc, where_scale,
                   presence_prob, presence]
-        new_state = [img_flat, what_code, where_code, presence, hidden_state]
+        new_state = [img_flat, what_code, where_code, presence, presence_logit, hidden_state]
 
         if self._transition_only_on_object:
             # if the object is not present, we don't update the state
@@ -203,8 +207,8 @@ class PropagatingAIRCell(AIRCell):
 
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 
-    def _compute_presence(self, inpt, presence, hidden_output):
-        presence_logit = self._steps_predictor(hidden_output)
+    def _compute_presence(self, inpt, presence, presence_logit, hidden_output):
+        presence_logit = self._steps_predictor(hidden_output) + presence_logit
         presence_prob = tf.nn.sigmoid(presence_logit)
 
         presence_distrib = Bernoulli(probs=presence_prob, dtype=tf.float32,
@@ -215,7 +219,7 @@ class PropagatingAIRCell(AIRCell):
         # object at this timestep
         presence = presence_tm1 * new_presence
 
-        return presence, presence_prob
+        return presence, presence_prob, presence_logit
 
     def _maybe_transition(self, presence, inpt, state, new_state):
         """Transition only if the object was present before"""

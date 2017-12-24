@@ -1,5 +1,6 @@
 import os.path as osp
 import time
+import itertools
 
 import matplotlib
 import numpy as np
@@ -102,19 +103,26 @@ class ProgressFig(object):
         fig, axes = self._make_fig(2 * self.seq_n_samples, self.n_timesteps)
         axes = axes.reshape((2 * self.seq_n_samples, self.n_timesteps))
 
+        unique_ids = np.unique(o.obj_id)[1:] # remove id == -1
+        color_by_id = {i: c for i, c in zip(unique_ids, itertools.cycle(self._BBOX_COLORS))}
+        color_by_id[-1] = 'k'
+
         for t, ax in enumerate(axes.T):
             for n in xrange(self.seq_n_samples):
                 pres_time = o.presence[t, n, :]
+                obj_id_time = o.obj_id[t, n, :]
                 ax[2 * n].imshow(o.obs[t, n], cmap='gray', vmin=0., vmax=1.)
 
                 n_obj = str(int(np.round(pres_time.sum())))
-                id_string = ('{}{}'.format(c, int(i)) for c, i in zip(self._BBOX_COLORS, o.obj_id[t, n]) if i > -1.)
+                # id_string = ('{}{}'.format(c, int(i)) for c, i in zip(self._BBOX_COLORS, o.obj_id[t, n]) if i > -1.)
+                id_string = ('{}{}'.format(color_by_id[i], i) for i in o.obj_id[t, n] if i > -1)
                 id_string = ', '.join(id_string)
                 title = '{}: {}'.format(n_obj, id_string)
 
                 ax[2 * n + 1].set_title(title, fontsize=6 * self.fig_scale)
                 ax[2 * n + 1].imshow(o.canvas[t, n], cmap='gray', vmin=0., vmax=1.)
-                for i, (p, c) in enumerate(zip(pres_time, self._BBOX_COLORS)):
+                for i, (p, o_id) in enumerate(zip(pres_time, obj_id_time)):
+                    c = color_by_id[o_id]
                     if p > .5:
                         self._rect(ax[2 * n + 1], o.where[t, n, i], c, line_width=1.)
 
@@ -145,6 +153,7 @@ class ProgressFig(object):
             tensors = {name: getattr(self.air, 'resampled_' + name, getattr(self.air, name)) for name in names}
             tensors = AttrDict(tensors)
             tensors.posterior_step_prob = tensors.posterior_step_prob[..., 1:]
+            tensors.obj_id = tf.to_int32(tensors.obj_id)
 
             # logits to coords
             tensors.where = SpatialTransformer.to_coords(tensors.where)
@@ -183,11 +192,15 @@ def make_logger(air, sess, summary_writer, train_tensor, n_train_samples, test_t
         'rec_loss': air.rec_loss,
         'num_step_acc': air.num_step_accuracy,
         'num_step': air.num_step,
+        'num_disc_step': air.num_disc_step,
+        'num_prop_step': air.num_prop_step,
         'kl_div': air.kl_div
     }
 
     additional_exprs = {
         'nums_xe': 'nums_xe',
+        'kl_disc_num_steps': 'kl_disc_num_steps',
+        'kl_prop_num_steps': 'kl_prop_num_steps',
         'kl_num_steps': 'kl_num_steps',
         'kl_what': 'kl_what',
         'kl_where': 'kl_where',

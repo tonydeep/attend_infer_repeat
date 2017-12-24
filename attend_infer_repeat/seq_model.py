@@ -97,11 +97,12 @@ class SeqAIRModel(object):
         res = self._time_loop()
         self.final_state = res[2]
         self.cumulative_imp_weights = res[4]
-        tas = res[8:]
+        tas = res[9:]
 
         # TODO: prettify
         self.output_names = 'obj_id step_log_prob canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
-                            ' kl_where_per_sample kl_steps_per_sample kl_per_sample elbo_per_sample num_step_per_sample' \
+                            ' kl_where_per_sample kl_disc_steps_per_sample kl_prop_steps_per_sample kl_steps_per_sample' \
+                            ' kl_per_sample elbo_per_sample num_disc_step_per_sample num_prop_step_per_sample num_step_per_sample' \
                             ' importance_weight iw_elbo prior_where_loc prior_where_scale prior_what_loc' \
                             ' prior_what_scale'.split()
 
@@ -121,9 +122,13 @@ class SeqAIRModel(object):
         # Logging
         self._log_resampled(-self.likelihood_per_sample, 'rec_loss')
         self._log_resampled(self.kl_per_sample, 'kl_div')
+        self._log_resampled(self.num_disc_step_per_sample, 'num_disc_step')
+        self._log_resampled(self.num_prop_step_per_sample, 'num_prop_step')
         self._log_resampled(self.num_step_per_sample, 'num_step')
         self._log_resampled(tf.reduce_sum(self.kl_what_per_sample, -1), 'kl_what')
         self._log_resampled(tf.reduce_sum(self.kl_what_per_sample, -1), 'kl_where')
+        self._log_resampled(self.kl_disc_steps_per_sample, 'kl_disc_num_steps')
+        self._log_resampled(self.kl_prop_steps_per_sample, 'kl_prop_num_steps')
         self._log_resampled(self.kl_steps_per_sample, 'kl_num_steps')
 
         # For rendering
