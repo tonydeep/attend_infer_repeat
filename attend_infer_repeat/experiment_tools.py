@@ -208,8 +208,11 @@ def set_flags_if_notebook(**flags_to_set):
     if is_notebook() and flags_to_set:
         print 'Setting the following flags:'
         keys = sorted(flags_to_set.keys())
-        for k in keys:
-            print '\t{}: {}'.format(k, flags_to_set[k])
+        for k in keys[:-1]:
+            print ' --{}={}\\'.format(k, flags_to_set[k])
+
+        k = keys[-1]
+        print ' --{}={}'.format(k, flags_to_set[k])
 
         set_flags(**flags_to_set)
 

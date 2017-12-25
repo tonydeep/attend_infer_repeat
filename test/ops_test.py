@@ -6,7 +6,7 @@ from testing_tools import TFTestBase
 
 from attend_infer_repeat.ops import (sample_from_tensor, gather_axis, tile_input_for_iwae,
                                      select_present, select_present2, compute_object_ids,
-                                     select_present_impl)
+                                     select_present_impl, update_num_obj_counts)
 
 
 class SampleFromTensorTest(TFTestBase):
@@ -292,9 +292,6 @@ class TestSelectPresentImpl(TFTestBase):
         scatter_idx = tf.range(nnz)
         scattered = tf.scatter_nd(scatter_idx, selected_vals, tf.shape(vals))
 
-
-
-
     def test(self):
 
         x = np.asarray([1, 2])
@@ -368,3 +365,46 @@ class ComputeObjectIdsTest(TFTestBase):
         assert_array_equal(used, expected_last_used_id)
         assert_array_equal(new[:, :3], expected_prop)
         assert_array_equal(new[:, 3:], expected_disc)
+
+
+class UpdateObjectNumCountTest(TFTestBase):
+
+    def test_from_zero(self):
+        counts = tf.zeros((3, 5))
+        updates = np.asarray([1, 3, 4]).reshape(3)
+        updated = update_num_obj_counts(counts, updates)
+        res = self.eval(updated)
+
+        self.assertEqual(res.shape, counts.shape)
+        self.assertEqual(np.count_nonzero(res), 3)
+        self.assertEqual(res[0, 1], 1)
+        self.assertEqual(res[1, 3], 1)
+        self.assertEqual(res[2, 4], 1)
+
+    def test_add(self):
+        counts = tf.round(tf.random_uniform((5, 7), maxval=100))
+        updates = np.asarray([6, 0, 1, 1, 2])
+        updated = update_num_obj_counts(counts, updates)
+        orig = self.eval(counts)
+        res = self.eval(updated, feed_dict={counts: orig})
+
+        self.assertEqual(res.shape, counts.shape)
+        for r, col in enumerate(updates):
+            self.assertEqual(res[r, col], orig[r, col] + 1)
+
+    def test_repeated(self):
+        counts = tf.round(tf.random_uniform((5, 7), maxval=100))
+        updates = [np.random.randint(0, 7, size=5) for _ in xrange(11)]
+
+        updated = counts
+        for u in updates:
+            updated = update_num_obj_counts(updated, u)
+
+        orig = self.eval(counts)
+        res = self.eval(updated, feed_dict={counts: orig})
+
+        self.assertEqual(res.shape, counts.shape)
+        for r in xrange(orig.shape[0]):
+            for col in xrange(orig.shape[1]):
+                diff = sum([1 for u in updates if u[r] == col])
+                self.assertEqual(res[r, col], orig[r, col] + diff)

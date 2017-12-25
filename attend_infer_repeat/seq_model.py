@@ -104,7 +104,7 @@ class SeqAIRModel(object):
                             ' kl_where_per_sample kl_disc_steps_per_sample kl_prop_steps_per_sample kl_steps_per_sample' \
                             ' kl_per_sample elbo_per_sample num_disc_step_per_sample num_prop_step_per_sample num_step_per_sample' \
                             ' importance_weight iw_elbo prior_where_loc prior_where_scale prior_what_loc' \
-                            ' prior_what_scale'.split()
+                            ' prior_what_scale prior_prop_step_probs'.split()
 
         for name, ta in zip(self.cell.output_names + self.output_names, tas):
             output = ta.stack()
@@ -132,7 +132,7 @@ class SeqAIRModel(object):
         self._log_resampled(self.kl_steps_per_sample, 'kl_num_steps')
 
         # For rendering
-        resampled_names = 'obj_id canvas glimpse presence where posterior_step_prob'.split()
+        resampled_names = 'obj_id canvas glimpse presence where posterior_step_prob prior_prop_step_probs'.split()
         for name in resampled_names:
             setattr(self, 'resampled_' + name, self.resample(getattr(self, name), axis=1))
 
