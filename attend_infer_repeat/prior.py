@@ -151,32 +151,41 @@ class PoissonBinomialDistribution(Categorical):
                                                           dtype=dtype,
                                                           validate_args=validate_args,
                                                           allow_nan_stats=allow_nan_stats)
+
     @staticmethod
     def _pdf_by_dft(bernoulli_probs):
         ps = tf.expand_dims(tf.complex(bernoulli_probs, 0.), -2)
 
         n_events = int(ps.shape[-1])
-        denom = tf.complex(tf.to_float(n_events + 1), 0.)
-        exp_arg = 2j * np.pi / denom
-        C = tf.exp(exp_arg)
+        denom = tf.to_float(n_events + 1)
+        exp_arg = 2 * np.pi / denom
+        C = tf.exp(tf.complex(0., exp_arg))
         ks = tf.range(n_events + 1, dtype=tf.float32)
         mlk = - tf.matmul(ks[:, tf.newaxis], ks[np.newaxis, :])
         Cmlk = tf.expand_dims(tf.pow(C, tf.complex(mlk, 0.)), 0)
         Cl = tf.pow(C, tf.complex(ks, 0.)) - 1
-        Cl = tf.expand_dims(Cl, -1)
 
-        def mul_func(x):
-            return tf.matmul(Cl, x)
+        #        Cl = tf.expand_dims(Cl, -1)
+        #
+        #        def mul_func(x):
+        #            return tf.matmul(Cl, x)
+        #
+        #        batch_size = ps.shape.as_list()[0]
+        #        if batch_size is None:
+        #            batch_size = 10
+        #
+        #        qsp = 1 + tf.map_fn(mul_func, ps, parallel_iterations=batch_size)
+        #        prod_q = tf.expand_dims(tf.reduce_prod(qsp, -1), -2)
 
-        batch_size = ps.shape.as_list()[0]
-        if batch_size is None:
-            batch_size = 10
+        ps = ps[:, 0, ..., tf.newaxis]
+        Cl = Cl[tf.newaxis, tf.newaxis]
 
-        qsp = 1 + tf.map_fn(mul_func, ps, parallel_iterations=batch_size)
-        prod_q = tf.expand_dims(tf.reduce_prod(qsp, -1), -2)
+        qsp = Cl * ps
+        qsp += 1
+        prod_q = tf.expand_dims(tf.reduce_prod(qsp, -2), -2)
 
-        pdf = tf.reduce_sum(Cmlk * prod_q, -1) / denom
-        return tf.real(pdf)
+        pdf = tf.reduce_sum(Cmlk * prod_q, -1)
+        return tf.real(pdf) / denom
 
 
 

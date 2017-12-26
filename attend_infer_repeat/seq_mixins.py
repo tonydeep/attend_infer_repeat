@@ -198,11 +198,24 @@ class NaiveSeqAirMixin(object):
             prev_latents.append(z_tm1_per_object)
         return prev_latents
 
+    # def _unroll_timestep(self, inpt, hidden_state, cell, seq_len=None):
+    #     if inpt is None:
+    #         inpt = [tf.ones((self.effective_batch_size, 1))] * self.max_steps
+    #
+    #     hidden_outputs, hidden_state = tf.nn.static_rnn(cell, inpt, hidden_state, sequence_length=seq_len)
+    #     return hidden_outputs, hidden_state[-1]
+
     def _unroll_timestep(self, inpt, hidden_state, cell, seq_len=None):
         if inpt is None:
-            inpt = [tf.ones((self.effective_batch_size, 1))] * self.max_steps
+            if seq_len is None:
+                inpt = [tf.ones((self.effective_batch_size, 1))] * self.max_steps
+            else:
+                inpt = []
+                for t in xrange(self.max_steps):
+                    exists = tf.greater(seq_len, t)
+                    inpt.append(tf.expand_dims(tf.to_float(exists), -1))
 
-        hidden_outputs, hidden_state = tf.nn.static_rnn(cell, inpt, hidden_state, sequence_length=seq_len)
+        hidden_outputs, hidden_state = tf.nn.static_rnn(cell, inpt, hidden_state)
         return hidden_outputs, hidden_state[-1]
 
     def _time_transiton(self, inner_rnn_state, time_state):

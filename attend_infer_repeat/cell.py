@@ -151,6 +151,23 @@ class AIRCell(snt.RNNCore):
         new_state[-2] = presence
         return new_state
 
+    def postprocess(self, inpt, output, old_state, new_state):
+        """Implements sequence lengths
+
+            input is an indicator vector, where one means that a transition is allowed while 0
+            means there should be no transition. All outputs for disallowed transitions are set
+            to zero, while the hidden state for the last allowed transition is propagated"""
+
+        allowed = inpt
+        for i, o in enumerate(output):
+            output[i] = allowed * o
+
+        state = []
+        for os, ns in zip(old_state, new_state):
+            state.append(allowed * ns + (1 - allowed) * os)
+
+        return output, state
+
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
@@ -181,7 +198,7 @@ class AIRCell(snt.RNNCore):
             # if the object is not present, we don't update the state
             new_state = self._maybe_transition(presence, inpt, state, new_state)
 
-        return output, new_state
+        return self.postprocess(inpt, output, state, new_state)
 
 
 class PropagatingAIRCell(AIRCell):
@@ -228,6 +245,9 @@ class PropagatingAIRCell(AIRCell):
         new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
         new_state[-2] = presence
         return new_state
+
+    def postprocess(self, inpt, output, old_state, new_state):
+        return output, new_state
 
 
 class SeqAIRCell(snt.RNNCore):
