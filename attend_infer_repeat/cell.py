@@ -69,7 +69,6 @@ class AIRCell(snt.RNNCore):
             self._n_what,  # what
             self._n_transform_param,  # where
             1,  # presence
-            1,  # presence_logit
             self._transition.state_size,  # hidden state of the rnn
         ]
 
@@ -83,12 +82,13 @@ class AIRCell(snt.RNNCore):
             self._n_transform_param,  # where loc
             self._n_transform_param,  # where scale
             1,  # presence prob
-            1  # presence
+            1,  # presence
+            1  # presence_logit
         ]
 
     @property
     def output_names(self):
-        return 'what what_loc what_scale where where_loc where_scale presence_prob presence'.split()
+        return 'what what_loc what_scale where where_loc where_scale presence_prob presence presence_logit'.split()
 
     def initial_state(self, img):
         batch_size = img.get_shape().as_list()[0]
@@ -101,9 +101,7 @@ class AIRCell(snt.RNNCore):
 
         flat_img = tf.reshape(img, (batch_size, self._n_pix))
         init_presence = tf.ones((batch_size, 1), dtype=tf.float32) * self._init_presence_value
-        init_presence_logit = tf.clip_by_value(init_presence, 1e-4, 1. - 1e-4)
-        init_presence_logit = tf.log(init_presence_logit) - tf.log(1 - init_presence_logit)
-        return [flat_img, what_code, where_code, init_presence, init_presence_logit, hidden_state]
+        return [flat_img, what_code, where_code, init_presence, hidden_state]
 
     def _prepare_rnn_inputs(self, inpt, img, what, where, presence):
         transition_inpt = self._input_encoder(img)
@@ -134,7 +132,7 @@ class AIRCell(snt.RNNCore):
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 
-    def _compute_presence(self, inpt, presence, presence_logit, hidden_output):
+    def _compute_presence(self, inpt, presence, hidden_output):
         presence_logit = self._steps_predictor(hidden_output)
         presence_prob = tf.nn.sigmoid(presence_logit)
 
@@ -171,7 +169,7 @@ class AIRCell(snt.RNNCore):
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
-        img_flat, what_code, where_code, presence, presence_logit, hidden_state = state
+        img_flat, what_code, where_code, presence, hidden_state = state
 
         img_inpt = img_flat
         img = tf.reshape(img_inpt, (-1,) + tuple(self._img_size))
@@ -185,14 +183,14 @@ class AIRCell(snt.RNNCore):
 
         with tf.variable_scope('presence'):
             presence, presence_prob, presence_logit\
-                = self._compute_presence(inpt, presence, presence_logit, hidden_output)
+                = self._compute_presence(inpt, presence, hidden_output)
 
         with tf.variable_scope('what'):
             what_code, what_loc, what_scale = self._compute_what(inpt, img, where_code)
 
         output = [what_code, what_loc, what_scale, where_code, where_loc, where_scale,
-                  presence_prob, presence]
-        new_state = [img_flat, what_code, where_code, presence, presence_logit, hidden_state]
+                  presence_prob, presence, presence_logit]
+        new_state = [img_flat, what_code, where_code, presence, hidden_state]
 
         if self._transition_only_on_object:
             # if the object is not present, we don't update the state
@@ -224,14 +222,15 @@ class PropagatingAIRCell(AIRCell):
 
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 
-    def _compute_presence(self, inpt, presence, presence_logit, hidden_output):
-        presence_logit = self._steps_predictor(hidden_output) + presence_logit
+    def _compute_presence(self, inpt, presence, hidden_output):
+        presence_logit_tm1 = inpt[3]
+        presence_logit = self._steps_predictor(hidden_output) + presence_logit_tm1
         presence_prob = tf.nn.sigmoid(presence_logit)
 
         presence_distrib = Bernoulli(probs=presence_prob, dtype=tf.float32,
                                      validate_args=self._debug, allow_nan_stats=not self._debug)
         new_presence = presence_distrib.sample()
-        presence_tm1 = inpt[-1]
+        presence_tm1 = inpt[2]
         # object can be present only if it was present at the previous timestep and it does not depend on different
         # object at this timestep
         presence = presence_tm1 * new_presence
@@ -240,10 +239,10 @@ class PropagatingAIRCell(AIRCell):
 
     def _maybe_transition(self, presence, inpt, state, new_state):
         """Transition only if the object was present before"""
-        presence_tm1 = inpt[-1]
+        presence_tm1 = inpt[2]
         bool_pres = tf.cast(presence_tm1, bool)
         new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
-        new_state[-2] = presence
+        new_state[3] = presence
         return new_state
 
     def postprocess(self, inpt, output, old_state, new_state):

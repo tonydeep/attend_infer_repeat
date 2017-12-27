@@ -132,7 +132,7 @@ class SeqAIRModel(object):
         self._log_resampled(self.kl_steps_per_sample, 'kl_num_steps')
 
         # For rendering
-        resampled_names = 'obj_id canvas glimpse presence where posterior_step_prob prior_prop_step_probs'.split()
+        resampled_names = 'obj_id canvas glimpse presence presence_logit where posterior_step_prob prior_prop_step_probs'.split()
         for name in resampled_names:
             setattr(self, 'resampled_' + name, self.resample(getattr(self, name), axis=1))
 

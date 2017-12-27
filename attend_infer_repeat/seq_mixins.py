@@ -35,7 +35,8 @@ class NaiveSeqAirMixin(object):
         what = tf.zeros((1, 1, self.cell._n_what))
         where = tf.zeros((1, 1, self.cell._n_transform_param))
         presence = tf.zeros((1, 1, 1))
-        z0 = [tf.tile(i, (self.effective_batch_size, self.max_steps, 1)) for i in what, where, presence]
+        presence_logit = tf.zeros((1, 1, 1))
+        z0 = [tf.tile(i, (self.effective_batch_size, self.max_steps, 1)) for i in what, where, presence, presence_logit]
         self.z0 = z0
         initial_state = z0, self.cell.initial_state(self.used_obs[0])[1:]
 
@@ -60,8 +61,9 @@ class NaiveSeqAirMixin(object):
         where_ta = make_ta([self.max_steps, 4])
         where_ta = make_ta([self.max_steps, 4])
         where_ta = make_ta([self.max_steps, 4])
+        pres_prob_ta = make_ta([self.max_steps, 1])
         pres_ta = make_ta([self.max_steps, 1])
-        pres_ta = make_ta([self.max_steps, 1])
+        pres_logit_ta = make_ta([self.max_steps, 1])
         obj_id_ta = make_ta([self.max_steps, 1])
         step_log_prob_ta = make_ta([1])
         canvas_ta = make_ta(list(self.img_size))
@@ -183,7 +185,7 @@ class NaiveSeqAirMixin(object):
 
     def _pack_state(self, hidden_outputs, old_hidden_state, inner_rnn_state):
         """Takes outputs of the inner RNN and prepares a hidden state to propagate it to the next timestep"""
-        zs = [hidden_outputs[i] for i in (0, 3, 7)]  # what, where, presence
+        zs = [hidden_outputs[i] for i in (0, 3, 7, 8)]  # what, where, presence
         inner_state = old_hidden_state[1:]
         inner_state[-1] = inner_rnn_state  # update the inner RNN state but don't touch initial values for zs
         return zs, inner_state
@@ -193,7 +195,7 @@ class NaiveSeqAirMixin(object):
         for i in xrange(self.max_steps):
             z_tm1_per_object = [z[..., i, :] for z in z_tm1]
             # mask out absent objects
-            pres = z_tm1_per_object[-1]
+            pres = z_tm1_per_object[2]
             z_tm1_per_object = [z * pres for z in z_tm1_per_object]
             prev_latents.append(z_tm1_per_object)
         return prev_latents
@@ -238,7 +240,7 @@ class NaiveSeqAirMixin(object):
         # merge & flatten states
         hidden_outputs = stack_states(hidden_outputs)
 
-        presence_prob, presence = (extract_state(hidden_outputs, i) for i in (-2, -1))
+        presence_prob, presence = (extract_state(hidden_outputs, i) for i in (6, 7))
         # disc_num_steps_per_sample = tf.reduce_sum(presence, -1)
         disc_num_steps_per_sample = tf.reduce_sum(presence[..., 0], -1)
         prop_num_steps_per_sample = tf.zeros_like(disc_num_steps_per_sample)
@@ -278,7 +280,8 @@ class NaiveSeqAirMixin(object):
                                  prop_num_steps_per_sample, disc_presence_prob, prop_presence_prob,
                       prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale):
 
-        what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence = hidden_outputs[:-2]
+        what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit\
+            = hidden_outputs[:-2]
 
         ## Output Distribs
         likelihood_per_pixel = Normal(canvas, self.output_std).log_prob(img)
@@ -381,10 +384,10 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         propagate_outputs, inner_prop_state = self._unroll_timestep(prev_latents, prev_hidden_state, propagation_cell)
         prev_hidden_state[-1] = inner_prop_state
 
-        prop_presence_prob, prop_pres = (extract_state(propagate_outputs, i) for i in (-2, -1))
+        prop_presence_prob, prop_pres = (extract_state(propagate_outputs, i) for i in (6, 7))
         prop_num_steps_per_sample = tf.reduce_sum(prop_pres[..., 0], -1)
-        pres_tm1 = z_tm1[-1]
-        clipped_prob = clip_preserve(prop_presence_prob, 1e-16, 1.-1e-7)
+        pres_tm1 = z_tm1[2]
+        clipped_prob = clip_preserve(prop_presence_prob, 1e-16, 1. - 1e-7)
         # this is only for gradient computation later
         # if there was no object at the previous timestep, there's zero prob of being it now
         # so we just multiply by the presence before to mask out non-existent objects
@@ -397,7 +400,7 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
                                                                          seq_len=max_disc_steps)
         prev_hidden_state[-1] = inner_discovery_state
 
-        disc_presence_prob, disc_pres = (extract_state(discovery_outputs, i) for i in (-2, -1))
+        disc_presence_prob, disc_pres = (extract_state(discovery_outputs, i) for i in (6, 7))
         disc_num_steps_per_sample = tf.reduce_sum(disc_pres[..., 0], -1)
         discovery_log_prob = NumStepsDistribution(disc_presence_prob[..., 0]).log_prob(disc_num_steps_per_sample)
         step_log_prob = prop_log_prob + discovery_log_prob[..., tf.newaxis]
@@ -410,7 +413,7 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         hidden_outputs = stack_states(hidden_outputs)
         # 4) move present states to the beginning, but maintain ordering, e.g. propagated objects
         # should come before the new ones
-        presence = hidden_outputs[-1]
+        presence = hidden_outputs[7]
         hidden_outputs.append(new_obj_id)
 
         # append prior hidden states to enable re-shuffling them according to presence
@@ -427,7 +430,9 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         # # keep only self.max_steps latents
         hidden_outputs = [ho[:, :self.max_steps] for ho in hidden_outputs]
         if self.prior_rnn_class is not None:
-            z_tm1, prior_hidden_state, hidden_outputs = hidden_outputs[-4:-1], hidden_outputs[-1], hidden_outputs[:-4]
+            z_len = len(z_tm1)
+            idx = -1 - z_len
+            z_tm1, prior_hidden_state, hidden_outputs = hidden_outputs[idx:-1], hidden_outputs[-1], hidden_outputs[:idx]
 
         # reset ids of forgotten objects to -1
         obj_ids = hidden_outputs[-1]
