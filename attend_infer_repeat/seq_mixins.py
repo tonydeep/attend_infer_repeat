@@ -200,33 +200,27 @@ class NaiveSeqAirMixin(object):
             prev_latents.append(z_tm1_per_object)
         return prev_latents
 
-    # def _unroll_timestep(self, inpt, hidden_state, cell, seq_len=None):
-    #     if inpt is None:
-    #         inpt = [tf.ones((self.effective_batch_size, 1))] * self.max_steps
-    #
-    #     hidden_outputs, hidden_state = tf.nn.static_rnn(cell, inpt, hidden_state, sequence_length=seq_len)
-    #     return hidden_outputs, hidden_state[-1]
-
     def _unroll_timestep(self, inpt, hidden_state, cell, seq_len=None):
+        if seq_len is None:
+            seq_len_inpt = [tf.ones((self.effective_batch_size, 1))] * self.max_steps
+        else:
+            seq_len_inpt = []
+            for t in xrange(self.max_steps):
+                exists = tf.greater(seq_len, t)
+                seq_len_inpt.append(tf.expand_dims(tf.to_float(exists), -1))
+
         if inpt is None:
-            if seq_len is None:
-                inpt = [tf.ones((self.effective_batch_size, 1))] * self.max_steps
-            else:
-                inpt = []
-                for t in xrange(self.max_steps):
-                    exists = tf.greater(seq_len, t)
-                    inpt.append(tf.expand_dims(tf.to_float(exists), -1))
+            inpt = seq_len
+        else:
+            inpt = [[i, s] for i, s in zip(inpt, seq_len_inpt)]
 
         hidden_outputs, hidden_state = tf.nn.static_rnn(cell, inpt, hidden_state)
         return hidden_outputs, hidden_state[-1]
 
-    def _time_transiton(self, inner_rnn_state, time_state):
+    def _time_transiton(self, latent_encoding, time_state):
         if self.time_transition_class is not None:
-            flat_rnn_state = nest.flatten(inner_rnn_state)
-            inpt = tf.concat(flat_rnn_state, -1)
-            flat_rnn_state[-1], time_state = self.time_transition(inpt, time_state)
-            inner_rnn_state = nest.pack_sequence_as(inner_rnn_state, flat_rnn_state)
-        return inner_rnn_state, time_state
+            _, time_state = self.time_transition(latent_encoding, time_state)
+        return time_state
 
     def _propagate(self, z_tm1, prev_hidden_state, time_state, prev_ids, last_used_id, prior_hidden_state):
         """Computes a single time-step
@@ -361,6 +355,7 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
                            debug=self.debug,
                            **cell_kwargs)
 
+        self._n_hidden = discovery_cell._n_hidden
         # Prop cell should have a different rnn cell but should share all other estimators
         prop_transition = transition.__class__(discovery_cell._n_hidden)
         input_encoder = lambda: discovery_cell._input_encoder
@@ -374,17 +369,25 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
 
         return [discovery_cell, propagation_cell]
 
+    def _encode_latents(self, what, where, presence):
+        inpts = tf.concat((what, where), -1)
+        mlp = snt.Linear(self._n_hidden), tf.nn.elu, snt.Linear(self._n_hidden), tf.nn.elu
+        mlp = snt.Sequential(mlp)
+        features = snt.BatchApply(mlp)(inpts) * presence
+        return tf.reduce_sum(features, -2)
+
     def _propagate(self, z_tm1, prev_hidden_state, time_state, prev_ids, last_used_id, prior_hidden_state):
         """Computes a single time-step
         """
         discovery_cell, propagation_cell = self.cells
         prev_latents = self._extract_prev_latents(z_tm1)
+        img = prev_hidden_state[0]
 
         # # 1) propagate previous
-        propagate_outputs, inner_prop_state = self._unroll_timestep(prev_latents, prev_hidden_state, propagation_cell)
-        prev_hidden_state[-1] = inner_prop_state
+        prop_state = propagation_cell.initial_state(img, hidden_state=time_state)
+        propagate_outputs, inner_prop_state = self._unroll_timestep(prev_latents, prop_state, propagation_cell)
 
-        prop_presence_prob, prop_pres = (extract_state(propagate_outputs, i) for i in (6, 7))
+        prop_what, prop_where, prop_presence_prob, prop_pres = (extract_state(propagate_outputs, i) for i in (0, 3, 6, 7))
         prop_num_steps_per_sample = tf.reduce_sum(prop_pres[..., 0], -1)
         pres_tm1 = z_tm1[2]
         clipped_prob = clip_preserve(prop_presence_prob, 1e-16, 1. - 1e-7)
@@ -396,9 +399,11 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
 
         # # 2) discover new objects
         max_disc_steps = self.max_steps - prop_num_steps_per_sample
-        discovery_outputs, inner_discovery_state = self._unroll_timestep(None, prev_hidden_state, discovery_cell,
-                                                                         seq_len=max_disc_steps)
-        prev_hidden_state[-1] = inner_discovery_state
+        disc_state = discovery_cell.initial_state(img)
+        prop_latent_encoding = self._encode_latents(prop_what, prop_where, prop_pres)
+        prop_latent_encoding = [prop_latent_encoding] * self.max_steps
+        discovery_outputs, inner_discovery_state = self._unroll_timestep(prop_latent_encoding, disc_state,
+                                                                         discovery_cell, seq_len=max_disc_steps)
 
         disc_presence_prob, disc_pres = (extract_state(discovery_outputs, i) for i in (6, 7))
         disc_num_steps_per_sample = tf.reduce_sum(disc_pres[..., 0], -1)
@@ -439,8 +444,12 @@ class SeparateSeqAIRMixin(NaiveSeqAirMixin):
         hidden_outputs.append(step_log_prob)
 
         # handle transition between timesteps by a different RNN
-        inner_rnn_state, time_state = self._time_transiton(inner_discovery_state, time_state)
 
-        state = self._pack_state(hidden_outputs, prev_hidden_state, inner_rnn_state)
+
+        what, where, presence = [hidden_outputs[i] for i in [0, 3, 7]]
+        latent_encoding = self._encode_latents(what, where, presence)
+        time_state = self._time_transiton(latent_encoding, time_state)
+
+        state = self._pack_state(hidden_outputs, prev_hidden_state, inner_prop_state)
         return hidden_outputs, state, time_state, obj_ids, last_used_id, prior_hidden_state, z_tm1,\
                disc_num_steps_per_sample, prop_num_steps_per_sample, disc_presence_prob, prop_presence_prob

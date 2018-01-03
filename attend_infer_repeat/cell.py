@@ -22,8 +22,8 @@ class AIRCell(snt.RNNCore):
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                 condition_on_latents=False,
-                 condition_on_inpt=False, transition_only_on_object=False, debug=False):
+                 condition_on_latents=True,
+                 condition_on_inpt=True, transition_only_on_object=False, debug=False):
         """Creates the cell
 
         :param img_size: int tuple, size of the image
@@ -90,9 +90,11 @@ class AIRCell(snt.RNNCore):
     def output_names(self):
         return 'what what_loc what_scale where where_loc where_scale presence_prob presence presence_logit'.split()
 
-    def initial_state(self, img):
+    def initial_state(self, img, hidden_state=None):
         batch_size = img.get_shape().as_list()[0]
-        hidden_state = self._transition.initial_state(batch_size, tf.float32, trainable=True)
+
+        if hidden_state is None:
+            hidden_state = self._transition.initial_state(batch_size, tf.float32, trainable=True)
 
         where_code = tf.zeros([1, self._n_transform_param], dtype=tf.float32, name='where_init')
         what_code = tf.zeros([1, self._n_what], dtype=tf.float32, name='what_init')
@@ -169,6 +171,7 @@ class AIRCell(snt.RNNCore):
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
 
+        inpt, is_allowed = inpt
         img_flat, what_code, where_code, presence, hidden_state = state
 
         img_inpt = img_flat
@@ -196,7 +199,7 @@ class AIRCell(snt.RNNCore):
             # if the object is not present, we don't update the state
             new_state = self._maybe_transition(presence, inpt, state, new_state)
 
-        return self.postprocess(inpt, output, state, new_state)
+        return self.postprocess(is_allowed, output, state, new_state)
 
 
 class PropagatingAIRCell(AIRCell):
@@ -207,7 +210,7 @@ class PropagatingAIRCell(AIRCell):
 
         super(PropagatingAIRCell, self).__init__(img_size, crop_size, n_what, transition, input_encoder,
                                                  glimpse_encoder, transform_estimator, steps_predictor,
-                                                 condition_on_latents=False, condition_on_inpt=True,
+                                                 condition_on_latents=True, condition_on_inpt=True,
                                                  transition_only_on_object=True,
                                                  debug=debug)
 
@@ -285,8 +288,7 @@ class SeqAIRCell(snt.RNNCore):
     @property
     def output_names(self):
         cell_output_names = self._cell.output_names
-        add_names = 'kl_what_per_sample kl_where_prec_sample rec_loss_per_sample nelbo_per_sample'.split()
-        return cell_output_names# + add_names
+        return cell_output_names
 
     def initial_inpt(self, batch_size):
         # TODO: trainable or sampled from a prior
