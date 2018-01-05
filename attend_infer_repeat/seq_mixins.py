@@ -333,7 +333,7 @@ class NaiveSeqAirMixin(object):
         ### elbo
         elbo = likelihood - kl
 
-        return likelihood, elbo, kl, kl_what, kl_where, kl_disc_steps, kl_steps, kl_prop_steps, \
+        return likelihood, elbo, kl, kl_what, kl_where, kl_prop_steps, kl_disc_steps, kl_steps, \
                num_step_per_sample, posterior_step_probs, prop_num_step_prior_probs
 
     def _time_loop(self):
