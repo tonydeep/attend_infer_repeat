@@ -240,48 +240,15 @@ def broadcast_against(tensor, against_expr):
     return tensor
 
 
-# def select_present(x, presence, batch_size=1, name='select_present'):
-#     with tf.variable_scope(name):
-#         presence = 1 - tf.to_int32(presence)  # invert mask
-#
-#         # bs = x.get_shape()[0]
-#         # if bs != None:  # here type(bs) is tf.Dimension and == is ok
-#         #     batch_size = int(bs)
-#
-#         x_shape = tf.shape(x)
-#         p_shape = tf.shape(presence)
-#         sample_shape = x_shape[tf.shape(p_shape)[0]:]
-#         # batch_size = tf.reduce_prod(tf.shape(presence))
-#         # batch_size = 3
-#
-#         presence = tf.reshape(presence, [-1])
-#         flat_shape = tf.concat(([-1], sample_shape), 0)
-#         x = tf.reshape(x, flat_shape)
-#
-#         # 2 partitions for every sample in a batch: 0 and 1
-#         num_partitions = 2 * batch_size
-#         r = tf.range(0, num_partitions,  2)
-#         r.set_shape(tf.TensorShape(batch_size))
-#         r = broadcast_against(r, presence)
-#         # r = _broadcast_against(presence, r)
-#
-#         presence += r
-#
-#         selected = tf.dynamic_partition(x, presence, num_partitions)
-#         # selected = tf.concat(selected, axis=0)
-#         # selected = tf.reshape(selected, x_shape)
-#
-#     return presence
-# [ 0  2  4  6  8 10]
-# [ 1  2  4  7  9 10]
-# [0, 1, 1, 0, 0, 1]
-
 def select_present(x, presence, batch_size=None, name='select_present'):
     with tf.variable_scope(name):
         presence = 1 - tf.to_int32(presence)  # invert mask
 
         if batch_size is None:
-            batch_size = int(x.shape[0])
+            try:
+                batch_size = int(x.shape[0])
+            except TypeError:
+                raise ValueError('Batch size cannot be determined. Please provide it as an argument.')
 
         num_partitions = 2 * batch_size
         r = tf.range(0, num_partitions,  2)
@@ -326,86 +293,6 @@ def select_present_list(tensor_list, presence, batch_size=None, name='select_pre
     return nest.pack_sequence_as(structure=orig_inpt, flat_sequence=tensor_list)
 
 
-        # def scatter_present(n, vals, elem_shape):
-#     # i = tf.range(tf.to_int32(n))[tf.newaxis]
-#     vals = vals[tf.newaxis]
-#
-#     # scattered = tf.scatter_nd(i, vals, elem_shape)
-#
-#     rank = tf.shape(elem_shape)[0]
-#     before = tf.zeros((rank, 1), dtype=tf.int32)
-#     after = tf.to_int32(elem_shape) - tf.to_int32(tf.shape(vals))
-#     padding = tf.concat([before, after[:, tf.newaxis]], 1)
-#     scattered = tf.pad(vals, padding)
-#
-#     scattered = tf.cond(tf.greater(n, 0.), lambda: scattered, lambda: tf.zeros(elem_shape, tf.float32))
-#
-#     # return tf.to_float(tf.rank(vals))
-#     # return tf.to_float(padding)
-#     return scattered
-
-
-# def select_present2(x, presence, batch_size=1, name='select_present'):
-    # with tf.variable_scope(name):
-    #
-    #     bool_pres = tf.cast(presence, bool)
-    #     idx = tf.where(bool_pres)
-    #     idx = tf.cast(idx, tf.int32)
-    #     # values = tf.gather_nd(x, idx)
-    #     values = tf.gather(x, idx)
-    #
-    #     nnz = tf.reduce_sum(presence, -1)
-    #     elem_shape = tf.shape(x)[1:]
-    #
-    #     def map_fn((n, vals)):
-    #         return scatter_present(n, vals, elem_shape)
-    #
-    #     # idx2 = tf.to_int32(tf.where(tf.greater(nnz, 0.)))
-    #     # values = tf.scatter_nd(idx2, values, tf.shape(nnz))
-    #
-    #     return nnz, elem_shape, values, idx
-    #
-    #     selected = tf.map_fn(map_fn, [nnz, values], dtype=tf.float32)
-    #     # selected = tf.reshape(selected, tf.shape(x))
-    #
-    #     # return values, elem_shape, selected
-    #     # selected.set_shape(x.get_shape())
-    #     #
-    #     #
-    #
-    #     # new_idx = tf.range(tf.to_int32(nnz))
-    #     #
-    #     # selected = tf.scatter_nd(new_idx, values, tf.shape(x))
-    #     # # return nnz, idx, values, selected
-    #     return selected
-
-
-def select_present_impl((vals, p)):
-    idx = tf.where(tf.cast(p, bool))
-    selected_vals = tf.gather_nd(vals, idx)
-
-    # selected_vals = gather_axis(vals, idx, 0)
-    # selected_vals = tf.boolean_mask(vals, tf.cast(p, bool))
-
-    nnz = tf.to_int32(tf.reduce_sum(p))
-    scatter_idx = tf.range(nnz)
-    scattered = tf.scatter_nd(scatter_idx, selected_vals, tf.shape(vals))
-    return scattered, scatter_idx, selected_vals, tf.shape(vals), tf.shape(idx), tf.shape(vals)
-    # return selected_vals, scatter_idx, selected_vals, tf.shape(vals), tf.shape(idx), tf.shape(vals)
-
-
-def select_present2(x, presence, batch_size=1, name='select_present'):
-
-    batch_size = 64
-    try:
-        batch_size = int(x.shape[0])
-    except TypeError:
-        pass
-
-    selected = tf.map_fn(select_present_impl, [x, presence], dtype=tf.float32, parallel_iterations=batch_size)
-    return selected
-
-
 def compute_object_ids(last_used_id, prev_ids, propagated_pres, discovery_pres):
     last_used_id, prev_ids, propagated_pres, discovery_pres = [tf.convert_to_tensor(i) for i in (last_used_id, prev_ids, propagated_pres, discovery_pres)]
     prop_ids = prev_ids * propagated_pres - (1 - propagated_pres)
@@ -430,3 +317,8 @@ def update_num_obj_counts(num_counts, obj_counts):
     obj_count_idx = tf.concat((batch_idx, obj_counts), -1)
     count_updates = tf.scatter_nd(obj_count_idx, tf.ones([batch_size]), tf.shape(num_counts))
     return num_counts + count_updates
+
+
+def extract_state(states, idx):
+    state = [s[idx] for s in states]
+    return tf.stack(state, 1)

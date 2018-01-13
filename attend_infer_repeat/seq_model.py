@@ -11,7 +11,10 @@ from prior import NumStepsDistribution
 
 
 # TODO: implement FIVO & per-timestep VIMCO for FIVO
-
+# TODO 09.01.2018: right now we prevent transition to the following timestep directly inside the cell; we set all outputs to zero in that case.
+# The problem is that it leads to NaNs in KL/sampling/prob eval so we need to set it to some small eps. It'd be better to
+# not set it to any values but to set likelihood/kl/per-timestep elbos to zeros instead. It's harder to implement, though.
+# If the simple fix improves situation we can think about a more complicated but formally better solution.
 
 class SeqAIRModel(object):
     """Generic AIR model
@@ -95,16 +98,10 @@ class SeqAIRModel(object):
         self.cell = self.cells[0]
 
         res = self._time_loop()
-        self.final_state = res[2]
-        self.cumulative_imp_weights = res[4]
-        tas = res[9:]
-
-        # TODO: prettify
-        self.output_names = 'obj_id step_log_prob canvas glimpse posterior_step_prob likelihood_per_sample kl_what_per_sample' \
-                            ' kl_where_per_sample kl_disc_steps_per_sample kl_prop_steps_per_sample kl_steps_per_sample' \
-                            ' kl_per_sample elbo_per_sample num_disc_step_per_sample num_prop_step_per_sample num_step_per_sample' \
-                            ' importance_weight iw_elbo prior_where_loc prior_where_scale prior_what_loc' \
-                            ' prior_what_scale prior_prop_step_probs'.split()
+        # self.final_state = res[2]
+        # self.cumulative_imp_weights = res[4]
+        tas = res[self.non_ta_output_len:]
+        self.output_names = self.ta_names[len(self.cell.output_names):]
 
         for name, ta in zip(self.cell.output_names + self.output_names, tas):
             output = ta.stack()
@@ -116,7 +113,8 @@ class SeqAIRModel(object):
                                                                                   self.cumulative_elbo_per_sample)
 
         resampling_logits = tf.reshape(self.cumulative_elbo_per_sample, (self.batch_size, self.iw_samples))
-        self.cumulative_imp_distrib = tf.contrib.distributions.Categorical(resampling_logits)
+        # resampling_logits = tf.clip_by_value(resampling_logits, -1e16, 1e16)
+        self.cumulative_imp_distrib = tf.contrib.distributions.Categorical(logits=resampling_logits)
         self.imp_resampling_idx = self.cumulative_imp_distrib.sample()
 
         # Logging
@@ -126,13 +124,13 @@ class SeqAIRModel(object):
         self._log_resampled(self.num_prop_step_per_sample, 'num_prop_step')
         self._log_resampled(self.num_step_per_sample, 'num_step')
         self._log_resampled(tf.reduce_sum(self.kl_what_per_sample, -1), 'kl_what')
-        self._log_resampled(tf.reduce_sum(self.kl_what_per_sample, -1), 'kl_where')
+        self._log_resampled(tf.reduce_sum(self.kl_where_per_sample, -1), 'kl_where')
         self._log_resampled(self.kl_disc_steps_per_sample, 'kl_disc_num_steps')
         self._log_resampled(self.kl_prop_steps_per_sample, 'kl_prop_num_steps')
         self._log_resampled(self.kl_steps_per_sample, 'kl_num_steps')
 
         # For rendering
-        resampled_names = 'obj_id canvas glimpse presence presence_logit where posterior_step_prob prior_prop_step_probs'.split()
+        resampled_names = 'obj_id canvas glimpse presence_prob presence presence_logit where'.split() # prior_prop_step_probs
         for name in resampled_names:
             setattr(self, 'resampled_' + name, self.resample(getattr(self, name), axis=1))
 
@@ -165,9 +163,6 @@ class SeqAIRModel(object):
 
         self.baseline = self._make_baseline(self.cumulative_elbo_per_sample)
 
-        # TODO: prop_cell produces steps with beroulli probabilities, below is applicable only to discovery - fix
-        # num_steps_posterior = NumStepsDistribution(self.presence_prob[..., 0])
-        # posterior_num_steps_log_prob = num_steps_posterior.log_prob(self.num_step_per_sample)
         posterior_num_steps_log_prob = self.step_log_prob[..., 0]
         posterior_num_steps_log_prob = tf.reduce_sum(posterior_num_steps_log_prob, 0)
 

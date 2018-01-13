@@ -114,18 +114,19 @@ class NumStepsDistribution(object):
         sample = tf.reduce_sum(sample, -1)
         return sample
 
-    def prob(self, samples=None):
-        if samples is None:
-            return self._joint
-
+    def prob(self, samples):
         probs = sample_from_tensor(self._joint, samples)
         return probs
 
     def log_prob(self, samples):
         prob = self.prob(samples)
         
-        prob = clip_preserve(prob, 1e-16, prob)
+        prob = clip_preserve(prob, 1e-16, 1.)
         return tf.log(prob)
+
+    @property
+    def probs(self):
+        return self._joint
 
 
 class PoissonBinomialDistribution(Categorical):
@@ -164,18 +165,6 @@ class PoissonBinomialDistribution(Categorical):
         mlk = - tf.matmul(ks[:, tf.newaxis], ks[np.newaxis, :])
         Cmlk = tf.expand_dims(tf.pow(C, tf.complex(mlk, 0.)), 0)
         Cl = tf.pow(C, tf.complex(ks, 0.)) - 1
-
-        #        Cl = tf.expand_dims(Cl, -1)
-        #
-        #        def mul_func(x):
-        #            return tf.matmul(Cl, x)
-        #
-        #        batch_size = ps.shape.as_list()[0]
-        #        if batch_size is None:
-        #            batch_size = 10
-        #
-        #        qsp = 1 + tf.map_fn(mul_func, ps, parallel_iterations=batch_size)
-        #        prod_q = tf.expand_dims(tf.reduce_prod(qsp, -1), -2)
 
         ps = ps[:, 0, ..., tf.newaxis]
         Cl = Cl[tf.newaxis, tf.newaxis]

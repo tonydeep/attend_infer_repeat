@@ -43,7 +43,7 @@ class AIRCell(snt.RNNCore):
         self._crop_size = crop_size
         self._n_what = n_what
         self._transition = transition
-        self._n_hidden = self._transition.output_size[0]
+        self._n_hidden = int(self._transition.output_size[0])
 
         self._condition_on_latents = condition_on_latents
         self._condition_on_inpt = condition_on_inpt
@@ -105,6 +105,10 @@ class AIRCell(snt.RNNCore):
         init_presence = tf.ones((batch_size, 1), dtype=tf.float32) * self._init_presence_value
         return [flat_img, what_code, where_code, init_presence, hidden_state]
 
+    def _parse_inpt(self, inpt, presence):
+        inpt, is_allowed = inpt
+        return inpt, is_allowed * presence
+
     def _prepare_rnn_inputs(self, inpt, img, what, where, presence):
         transition_inpt = self._input_encoder(img)
         transition_inpt = [transition_inpt]
@@ -145,37 +149,34 @@ class AIRCell(snt.RNNCore):
 
         return presence, presence_prob, presence_logit
 
-    def _maybe_transition(self, presence, inpt, state, new_state):
-        bool_pres = tf.cast(presence, bool)
-        new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
-        new_state[-2] = presence
-        return new_state
-
-    def postprocess(self, inpt, output, old_state, new_state):
+    def _maybe_transition(self, is_allowed, output, old_state, new_state):
         """Implements sequence lengths
 
             input is an indicator vector, where one means that a transition is allowed while 0
             means there should be no transition. All outputs for disallowed transitions are set
             to zero, while the hidden state for the last allowed transition is propagated"""
 
-        allowed = inpt
-        for i, o in enumerate(output):
-            output[i] = allowed * o
+        # for i, o in enumerate(output):
+        #     output[i] = is_allowed * o
+        #
+        # for i in (2, 5):
+        #     output[i] += 1e-32 * (1. - is_allowed)
+
+        # set what, where, pres_prob, pres, pres_logit to zero
+        for i in (0, 3, 6, 7, 8):
+            output[i] *= is_allowed
 
         state = []
         for os, ns in zip(old_state, new_state):
-            state.append(allowed * ns + (1 - allowed) * os)
+            state.append(is_allowed * ns + (1 - is_allowed) * os)
 
         return output, state
 
     def _build(self, inpt, state):
         """Input is unused; it's only to force a maximum number of steps"""
-
-        inpt, is_allowed = inpt
         img_flat, what_code, where_code, presence, hidden_state = state
-
-        img_inpt = img_flat
-        img = tf.reshape(img_inpt, (-1,) + tuple(self._img_size))
+        inpt, is_allowed = self._parse_inpt(inpt, presence)
+        img = tf.reshape(img_flat, (-1,) + tuple(self._img_size))
 
         with tf.variable_scope('rnn_inpt'):
             rnn_inpt = self._prepare_rnn_inputs(inpt, img, what_code, where_code, presence)
@@ -195,11 +196,7 @@ class AIRCell(snt.RNNCore):
                   presence_prob, presence, presence_logit]
         new_state = [img_flat, what_code, where_code, presence, hidden_state]
 
-        if self._transition_only_on_object:
-            # if the object is not present, we don't update the state
-            new_state = self._maybe_transition(presence, inpt, state, new_state)
-
-        return self.postprocess(is_allowed, output, state, new_state)
+        return self._maybe_transition(is_allowed, output, state, new_state)
 
 
 class PropagatingAIRCell(AIRCell):
@@ -213,6 +210,11 @@ class PropagatingAIRCell(AIRCell):
                                                  condition_on_latents=True, condition_on_inpt=True,
                                                  transition_only_on_object=True,
                                                  debug=debug)
+
+    def _parse_inpt(self, inpt, _):
+        inpt, _ = inpt
+        presence = inpt[2]
+        return inpt, presence
 
     def _compute_where(self, inpt, hidden_output):
         where_tm1 = inpt[1]
@@ -239,17 +241,6 @@ class PropagatingAIRCell(AIRCell):
         presence = presence_tm1 * new_presence
 
         return presence, presence_prob, presence_logit
-
-    def _maybe_transition(self, presence, inpt, state, new_state):
-        """Transition only if the object was present before"""
-        presence_tm1 = inpt[2]
-        bool_pres = tf.cast(presence_tm1, bool)
-        new_state = [tf.where(tf.tile(bool_pres, (1, int(s.shape[-1]))), ns, s) for ns, s in zip(new_state, state)]
-        new_state[3] = presence
-        return new_state
-
-    def postprocess(self, inpt, output, old_state, new_state):
-        return output, new_state
 
 
 class SeqAIRCell(snt.RNNCore):

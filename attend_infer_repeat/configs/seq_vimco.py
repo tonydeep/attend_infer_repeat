@@ -4,7 +4,7 @@ import sonnet as snt
 from attend_infer_repeat.mnist_model import SeqAIRonMNIST, KLBySamplingMixin
 from attend_infer_repeat.experiment_tools import optimizer_from_string
 from attend_infer_repeat.ops import maybe_getattr
-from attend_infer_repeat.seq_mixins import NaiveSeqAirMixin, SeparateSeqAIRMixin
+from attend_infer_repeat.seq_mixins import SeparateSeqAIRMixin
 from attend_infer_repeat import tf_flags as flags
 
 flags.DEFINE_float('step_bias', 1., '')
@@ -41,9 +41,9 @@ def load(img, num):
     time_transition = maybe_getattr(snt, f.time_transition)
     prior_transition = maybe_getattr(snt, f.prior_transition)
 
-    seq_mixin = NaiveSeqAirMixin
-    if f.separate:
-        seq_mixin = SeparateSeqAIRMixin
+    # seq_mixin = NaiveSeqAirMixin
+    # if f.separate:
+    seq_mixin = SeparateSeqAIRMixin
 
     class SeqAIRwithVIMCO(SeqAIRonMNIST, KLBySamplingMixin, seq_mixin):
         importance_resample = f.importance_resample

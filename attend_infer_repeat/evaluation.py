@@ -78,7 +78,7 @@ class ProgressFig(object):
             for j, ax in enumerate(ax_row):
                 ax.imshow(o.presence[j, i] * o.glimpse[j, i], cmap='gray')
                 ax.set_title('{:d} with p({:d}) = {:.02f}'.format(int(o.presence[j, i]), i + 1,
-                                                                  o.posterior_step_prob[j, i]),
+                                                                  o.presence_prob[j, i]),
                              fontsize=4 * self.fig_scale)
 
                 if o.presence[j, i] > .5:
@@ -149,10 +149,10 @@ class ProgressFig(object):
             n_samples = self.n_samples
 
         if not getattr(self, '_air_tensors', None):
-            names = 'canvas glimpse posterior_step_prob presence where obj_id'.split()
+            names = 'canvas glimpse presence_prob presence where obj_id'.split()
             tensors = {name: getattr(self.air, 'resampled_' + name, getattr(self.air, name)) for name in names}
             tensors = AttrDict(tensors)
-            tensors.posterior_step_prob = tensors.posterior_step_prob[..., 1:]
+            tensors.presence_prob = tensors.presence_prob[..., 0]
             tensors.obj_id = tf.to_int32(tensors.obj_id)
 
             # logits to coords

@@ -10,6 +10,10 @@ from attend_infer_repeat.grad import NVILEstimator, ImportanceWeightedNVILEstima
 from attend_infer_repeat.modules import *
 
 
+# class AIRModelWithPriors(AIRModel, AIRPriorMixin, KLMixin, LogLikelihoodMixin, ImportanceWeightedNVILEstimator):
+#     importance_resample = True
+#     pass
+
 class AIRModelWithPriors(AIRModel, AIRPriorMixin, KLMixin, LogLikelihoodMixin, ImportanceWeightedNVILEstimator):
     importance_resample = True
     pass

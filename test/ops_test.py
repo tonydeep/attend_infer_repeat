@@ -1,16 +1,13 @@
-import tensorflow as tf
 import numpy as np
-
+import tensorflow as tf
 from numpy.testing import assert_array_equal, assert_array_almost_equal
-from testing_tools import TFTestBase
 
 from attend_infer_repeat.ops import (sample_from_tensor, gather_axis, tile_input_for_iwae,
-                                     select_present, select_present2, compute_object_ids,
-                                     select_present_impl, update_num_obj_counts)
+                                     select_present, compute_object_ids, update_num_obj_counts)
+from testing_tools import TFTestBase
 
 
 class SampleFromTensorTest(TFTestBase):
-
     @classmethod
     def setUpClass(cls):
         super(SampleFromTensorTest, cls).setUpClass()
@@ -19,11 +16,11 @@ class SampleFromTensorTest(TFTestBase):
         for i in xrange(1, 4):
             d = '{}d'.format(i)
             local = {
-                'x'+d: tf.placeholder(tf.float32, [None] * (i-1) + [cls.n_dim], 'x' + d),
-                'y'+d: tf.placeholder(tf.float32, [None] * (i-1), 'y' + d),
+                'x' + d: tf.placeholder(tf.float32, [None] * (i - 1) + [cls.n_dim], 'x' + d),
+                'y' + d: tf.placeholder(tf.float32, [None] * (i - 1), 'y' + d),
             }
 
-            local['sample'+d] = sample_from_tensor(local['x'+d], local['y'+d])
+            local['sample' + d] = sample_from_tensor(local['x' + d], local['y' + d])
 
             for k, v in local.iteritems():
                 setattr(cls, k, v)
@@ -67,7 +64,6 @@ class GatherAxisTest(TFTestBase):
         cls.gather = gather_axis(cls.x, cls.y, cls.m)
 
     def test_axis0(self):
-
         tensor = np.arange(10) + 1
         idx = [3, 4, 5]
         res = self.eval(self.gather, tensor, idx, 0)
@@ -75,7 +71,6 @@ class GatherAxisTest(TFTestBase):
         assert_array_equal(res, [4, 5, 6])
 
     def test_axis1_last(self):
-
         tensor = np.arange(10).reshape(1, 10) + 1
         idx = [3, 4, 5]
         expected = tensor[:, idx]
@@ -85,7 +80,6 @@ class GatherAxisTest(TFTestBase):
         assert_array_equal(res, expected)
 
     def test_axis1_not_last(self):
-
         tensor = np.arange(30).reshape(1, 10, 3) + 1
         idx = [3, 5, 7]
         expected = tensor[:, idx]
@@ -96,7 +90,6 @@ class GatherAxisTest(TFTestBase):
         assert_array_equal(res, expected)
 
     def test_axis1_first_not_equal_to_one(self):
-
         tensor = np.arange(30).reshape(3, 10) + 1
         idx = [3, 5, 7]
         expected = tensor[:, idx]
@@ -125,7 +118,6 @@ class GatherAxisTest(TFTestBase):
 
 
 class TileInputForIwaeTest(TFTestBase):
-
     vars = {
         'x': [tf.float32, [5, 1]],
         'y': [tf.int32, None]
@@ -161,13 +153,15 @@ class TileInputForIwaeTest(TFTestBase):
 
 class TestSelectPresent(TFTestBase):
     def setUp(self):
-        self.sp = select_present(self.x, self.y)
+        self.sp = select_present(self.x, self.y, 1)
         self.g_sp = tf.gradients(self.sp, self.x)[0]
         self.spm = lambda bs: select_present(self.x, self.y, bs)
 
     def test_batch_1d(self):
         x = np.asarray([[1, 2], [3, 4]])
+        print '1d', x.shape
         m = np.asarray([0, 1])
+        print m.shape
         yy = np.asarray([[3, 4], [1, 2]])
         y = self.eval(self.sp, x, m)
         assert_array_equal(y, yy)
@@ -177,6 +171,7 @@ class TestSelectPresent(TFTestBase):
 
     def test_timed_batch_1d(self):
         x = np.asarray([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        print 'timed_1d', x.shape
         m = np.asarray([[0, 1], [1, 0]])
         yy = np.asarray([[[3, 4], [1, 2]], [[5, 6], [7, 8]]])
 
@@ -185,6 +180,7 @@ class TestSelectPresent(TFTestBase):
 
     def test_batch_2d(self):
         x = np.asarray([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
+        print '2d', x.shape
         m = np.asarray([0, 1])
         yy = np.asarray([[[5, 6], [7, 8]], [[1, 2], [3, 4]]])
 
@@ -195,130 +191,12 @@ class TestSelectPresent(TFTestBase):
         self.assertFalse(np.isnan(g).any())
 
 
-class TestSelectPresent2(TFTestBase):
-    def setUp(self):
-        self.sp = select_present2(self.x, self.y)
-        # self.g_sp = tf.gradients(self.sp, self.x)[0]
-
-    def test_batch_1d_equal_num_entries_per_sample(self):
-        x = np.asarray([[1, 2], [3, 4]])
-        m = np.asarray([[0, 1], [1, 0]])
-        yy = np.asarray([[2, 0], [3, 0]])
-
-        print 'test_batch_1d_equal_num_entries_per_sample'
-        print x.shape, m.shape, yy.shape
-
-        y = self.eval(self.sp, x, m.astype(np.float32))
-        # print y.shape
-        print y
-
-        assert_array_equal(y, yy)
-
-        # g = self.eval(self.g_sp, x, m)
-        # assert_array_equal(g, m)
-
-    def test_batch_1d_unequal_num_entries_per_sample(self):
-        x = np.asarray([[1, 2], [3, 4]])
-        m = np.asarray([[0, 1], [1, 1]])
-        yy = np.asarray([[2, 0], [3, 0]])
-
-        print 'test_batch_1d_unequal_num_entries_per_sample'
-        print x.shape, m.shape, yy.shape
-
-        y = self.eval(self.sp, x, m.astype(np.float32))
-        print y
-
-        assert_array_equal(y, yy)
-
-        # g = self.eval(self.g_sp, x, m)
-        # assert_array_equal(g, m)
-
-    def test_batch_1d_sample_with_no_entries(self):
-        x = np.asarray([[1, 2], [3, 4]])
-        m = np.asarray([[0, 1], [0, 0]])
-        yy = np.asarray([[2, 0], [0, 0]])
-
-        print 'test_batch_1d_sample_with_no_entries'
-        print x.shape, m.shape, yy.shape
-
-        y = self.eval(self.sp, x, m)
-        # print y.shape
-        print y
-
-        assert_array_equal(y, yy)
-
-        # g = self.eval(self.g_sp, x, m)
-        # assert_array_equal(g, m)
-
-    def test_batch_2d_equal_num_entries_per_sample(self):
-        x = np.asarray([[[1, 2], [3, 4]], [[5, 6], [7, 8]]])
-        m = np.asarray([[0, 1], [1, 0]])
-        yy = np.asarray([[[3, 4], [0, 0]], [[5, 6], [0, 0]]])
-
-        y = self.eval(self.sp, x, m)
-        print 'test_batch_2d_equal_num_entries_per_sample'
-        print x.shape, m.shape, yy.shape
-        print yy
-
-        print y.shape
-
-        # print y.shape
-        # print y
-        assert_array_equal(y, yy)
-
-        # g = self.eval(self.g_sp, x, m)
-        # print g
-
-
-class TestSelectPresentImpl(TFTestBase):
-    def setUp(self):
-        # self.sp = select_present_impl((self.x, self.y))
-        #
-        # sp = self.sp[0]
-        # sp = tf.reduce_sum(sp)
-        # self.g_sp = tf.gradients(sp, self.x)[0]
-        # print self.g_sp
-
-        vals = self.x
-        idx = self.y
-
-        idx = tf.where(tf.cast(p, bool))
-        selected_vals = tf.gather_nd(vals, idx)
-
-        # selected_vals = gather_axis(vals, idx, 0)
-        # selected_vals = tf.boolean_mask(vals, tf.cast(p, bool))
-
-        nnz = tf.to_int32(tf.reduce_sum(p))
-        scatter_idx = tf.range(nnz)
-        scattered = tf.scatter_nd(scatter_idx, selected_vals, tf.shape(vals))
-
-    def test(self):
-
-        x = np.asarray([1, 2])
-        m = np.asarray([0, 1])
-        yy = np.asarray([2, 0])
-
-        print 'test_batch_1d_sample_with_no_entries'
-        print x.shape, m.shape, yy.shape
-        y = self.eval(self.sp, x, m)
-
-        for r in y:
-            print r
-
-        # assert_array_equal(y[0], yy)
-
-        print 'grad'
-        gy = self.eval(self.g_sp, x, m)
-        print gy
-
-
 class ComputeObjectIdsTest(TFTestBase):
-
     def test_no_obj(self):
         last_used_id = np.asarray([-1]).reshape(1, 1)
-        prev_ids = np.asarray([-1]*3).reshape(1, 3, 1)
-        prop_pres = np.asarray([0]*3).reshape(1, 3, 1)
-        disc_pres = np.asarray([0]*3).reshape(1, 3, 1)
+        prev_ids = np.asarray([-1] * 3).reshape(1, 3, 1)
+        prop_pres = np.asarray([0] * 3).reshape(1, 3, 1)
+        disc_pres = np.asarray([0] * 3).reshape(1, 3, 1)
 
         res = list(compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres))
         for i, r in enumerate(res):
@@ -333,7 +211,7 @@ class ComputeObjectIdsTest(TFTestBase):
         last_used_id = np.asarray([3]).reshape(1, 1)
         prev_ids = np.asarray([1, -1, 3]).reshape(1, 3, 1)
         prop_pres = np.asarray([1, 0, 0]).reshape(1, 3, 1)
-        disc_pres = np.asarray([0]*3).reshape(1, 3, 1)
+        disc_pres = np.asarray([0] * 3).reshape(1, 3, 1)
 
         res = list(compute_object_ids(last_used_id, prev_ids, prop_pres, disc_pres))
         for i, r in enumerate(res):
@@ -368,7 +246,6 @@ class ComputeObjectIdsTest(TFTestBase):
 
 
 class UpdateObjectNumCountTest(TFTestBase):
-
     def test_from_zero(self):
         counts = tf.zeros((3, 5))
         updates = np.asarray([1, 3, 4]).reshape(3)

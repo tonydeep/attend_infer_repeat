@@ -34,9 +34,16 @@ class CellTest(unittest.TestCase):
         air = AIRCell(img_size, crop_size, n_latent, **modules)
         initial_state = air.initial_state(x)
 
-        dummy_sequence = tf.zeros((n_steps, batch_size, 1), name='dummy_sequence')
-        outputs, state = tf.nn.dynamic_rnn(air, dummy_sequence, initial_state=initial_state, time_major=True)
-        what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence = outputs
+        inpt_shape = (n_steps, batch_size, 1)
+        dummy_sequence = tf.zeros(inpt_shape, name='dummy_sequence')
+        # allowed = tf.ones((n_steps, batch_size, 1), name='allowed')
+        allowed = tf.random_uniform(inpt_shape, maxval=1, dtype=tf.float32)
+        allowed = tf.to_float(tf.greater(allowed, .1))
+        allowed = tf.cumprod(allowed, axis=1)
+        inpt = dummy_sequence, allowed
+
+        outputs, state = tf.nn.dynamic_rnn(air, inpt, initial_state=initial_state, time_major=True)
+        what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit = outputs
 
         loss = tf.nn.l2_loss(what) + tf.nn.l2_loss(where)
 
@@ -51,10 +58,16 @@ class CellTest(unittest.TestCase):
         xx = np.random.rand(*x.get_shape().as_list())
         res, l = sess.run([outputs, loss], {x: xx})
 
+        nnz = 0.
+        total = 0.
         for r in res:
             print r.shape
+            nnz += np.count_nonzero(r)
+            total += r.size
 
         print res
+        print nnz, total
+        print 'Nonzero fraction = {:.2f}'.format(nnz / total)
 
         print 'loss = {}'.format(l)
         print 'Running train step'

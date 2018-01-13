@@ -1,6 +1,7 @@
 import os
 import unittest
 import tensorflow as tf
+from tensorflow.python.util import nest
 
 
 class TFTestBase(unittest.TestCase):
@@ -62,3 +63,25 @@ def test_path(path=None):
     if path is not None:
         p = os.path.join(p, path)
     return p
+
+
+def flatten_check(x, check_func):
+    res = []
+    x = nest.flatten(x)
+    for y in x:
+        res.append(check_func(y).any())
+    return any(res)
+
+
+def trainable_model_vars(skip_vars=tuple()):
+    vars = tf.trainable_variables()
+    model_vars = sorted(list(set(vars) - set(skip_vars)), key=lambda v: v.name)
+    return model_vars
+
+
+def print_trainable_variables(model_name, skip_vars=tuple()):
+    model_vars = trainable_model_vars(skip_vars)
+    print '{} Trainable Variables for model {}'.format(len(model_vars), model_name)
+    for v in model_vars:
+        print v.name, v.shape.as_list()
+    return model_vars
