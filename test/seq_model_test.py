@@ -199,7 +199,7 @@ class SeqModelTest(unittest.TestCase):
     def test_num_vars(self):
         """This is to ensure test failure whenever number of variables increases: it forces me to think why it happened
         as I need to change this number explicitly to make tests run agian."""
-        self.assertEqual(len(self.model_vars), 59)
+        self.assertEqual(len(self.model_vars), 63)
 
 
 

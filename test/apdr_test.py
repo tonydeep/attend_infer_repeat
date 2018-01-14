@@ -122,7 +122,7 @@ class PropagateTest(ModuleTest, unittest.TestCase):
 
         mean = 3 * cls.pres_tm1 - 3 * (1. - cls.pres_tm1)
         cls.pres_logit_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, 1)) + mean
-        cls.z_tm1 = [cls.where_tm1, cls.where_tm1, cls.pres_tm1, cls.pres_logit_tm1]
+        cls.z_tm1 = [cls.what_tm1, cls.where_tm1, cls.pres_tm1, cls.pres_logit_tm1]
 
         cls.temporal_cell = snt.LSTM(5)
         cls.temporal_state = cls.temporal_cell.initial_state(cls.batch_size, tf.float32, trainable=True)

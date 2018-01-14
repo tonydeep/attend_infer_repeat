@@ -67,6 +67,7 @@ class AIRBase(snt.AbstractModule):
         inpt = [[i, s] for i, s in zip(inpt, seq_len_inpt)]
 
         hidden_outputs, hidden_state = tf.nn.static_rnn(self._cell, inpt, hidden_state)
+        hidden_outputs = stack_states(hidden_outputs)
         return hidden_outputs, hidden_state[-1]
 
     def _make_posteriors(self, hidden_outputs):
@@ -96,7 +97,6 @@ class AttendDiscoverRepeat(AIRBase):
 
     def _build(self, img, n_present_obj, conditioning=None):
         hidden_outputs, num_steps = self._discover(img, n_present_obj, conditioning)
-        hidden_outputs = stack_states(hidden_outputs)
         kl, kl_where, kl_what, kl_num_step, num_steps_prob, log_num_steps_prob\
             = self._estimate_kl(hidden_outputs, num_steps)
 
@@ -182,10 +182,9 @@ class AttendPropagateRepeat(AIRBase):
         presence_tm1 = z_tm1[2]
 
         prior_stats, prior_state = self._update_prior(z_tm1, prior_state)
-        hidden_outputs, num_steps = self._propagate(img, z_tm1, temporal_state)
-        hidden_outputs = stack_states(hidden_outputs)
+        hidden_outputs, num_steps, delta_what, delta_where = self._propagate(img, z_tm1, temporal_state)
         kl, kl_where, kl_what, kl_num_step, prop_prob, log_prop_prob =\
-            self._estimate_kl(presence_tm1, hidden_outputs, num_steps, prior_stats)
+            self._estimate_kl(presence_tm1, hidden_outputs, prior_stats, delta_what, delta_where)
 
         outputs = AttrDict(
             prior_stats=prior_stats,
@@ -225,11 +224,15 @@ class AttendPropagateRepeat(AIRBase):
 
         hidden_outputs, inner_hidden_state = self._unroll_timestep(unstacked_z_tm1, initial_state)
 
+        delta_what, delta_where = hidden_outputs[0], hidden_outputs[3]
+        hidden_outputs[0] = z_tm1[0] + delta_what
+        hidden_outputs[3] = z_tm1[1] + delta_where
+
         # prop_prob, presence = _extract_latents(hidden_outputs, key='pres_prob pres'.split())
         presence = _extract_latents(hidden_outputs, key='pres')
         num_steps = tf.reduce_sum(presence[..., 0], -1)
 
-        return hidden_outputs, num_steps
+        return hidden_outputs, num_steps, delta_what, delta_where
 
     def _update_prior(self, z_tm1, prior_hidden_state):
         what_tm1, where_tm1, presence_tm1 = z_tm1[:3]
@@ -263,7 +266,7 @@ class AttendPropagateRepeat(AIRBase):
         prior_hidden_state = [rnn_hidden_state, num_obj_counts]
         return prior_stats, prior_hidden_state
 
-    def _estimate_kl(self, presence_tm1, hidden_outputs, num_steps, prior_stats):
+    def _estimate_kl(self, presence_tm1, hidden_outputs, prior_stats, delta_what, delta_where):
         what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit \
             = hidden_outputs
 
@@ -280,11 +283,13 @@ class AttendPropagateRepeat(AIRBase):
         what_prior, where_prior, prop_prior = self._make_priors(prior_stats)
 
         # KLs
-        kl_what = kl_by_sampling(what_posterior, what_prior, what)
+        kl_what = kl_by_sampling(what_posterior, what_prior, delta_what)
         kl_what = tf.reduce_sum(kl_what, -1) * presence_tm1
 
-        kl_where = kl_by_sampling(where_posterior, where_prior, where)
+        kl_where = kl_by_sampling(where_posterior, where_prior, delta_where)
         kl_where = tf.reduce_sum(kl_where, -1) * presence_tm1
+
+
 
         # kl_num_step = kl_by_sampling(num_steps_posterior, num_steps_prior, num_steps) * can_propagate
         kl_num_step = kl_by_sampling(prop_posterior, prop_prior, presence) * presence_tm1

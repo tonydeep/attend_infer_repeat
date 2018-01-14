@@ -25,7 +25,7 @@ class SeparateSeqAIRMixin(object):
 
         propagation_cell = PropagatingAIRCell(self.img_size, self.glimpse_size, self.n_what, prop_transition,
                            input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                           debug=self.debug)
+                           debug=self.debug, latent_scale=.1)
 
         self.discover = AttendDiscoverRepeat(self.max_steps, self.effective_batch_size, discovery_cell,
                                              step_success_prob=self._geom_success_prob())

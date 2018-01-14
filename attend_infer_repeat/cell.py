@@ -5,6 +5,7 @@ from tensorflow.contrib.distributions import Bernoulli, NormalWithSoftplusScale
 from tensorflow.python.util import nest
 
 from modules import SpatialTransformer, ParametrisedGaussian
+from neural import MLP
 
 
 def conditional_concat(cond, *inpts):
@@ -125,10 +126,13 @@ class AIRCell(snt.RNNCore):
 
         return transition_inpt
 
-    def _compute_what(self, inpt, img, where_code):
+    def _extract_and_encode_glimpse(self, img, where_code):
         cropped = self._spatial_transformer(img, logits=where_code)
         flat_crop = snt.BatchFlatten()(cropped)
-        what_params = self._glimpse_encoder(flat_crop)
+        return self._glimpse_encoder(flat_crop)
+
+    def _compute_what(self, inpt, img, where_code):
+        what_params = self._extract_and_encode_glimpse(img, where_code)
         what_distrib = self._what_distrib(what_params)
         return what_distrib.sample(), what_distrib.loc, what_distrib.scale
 
@@ -155,12 +159,6 @@ class AIRCell(snt.RNNCore):
             input is an indicator vector, where one means that a transition is allowed while 0
             means there should be no transition. All outputs for disallowed transitions are set
             to zero, while the hidden state for the last allowed transition is propagated"""
-
-        # for i, o in enumerate(output):
-        #     output[i] = is_allowed * o
-        #
-        # for i in (2, 5):
-        #     output[i] += 1e-32 * (1. - is_allowed)
 
         # set what, where, pres_prob, pres, pres_logit to zero
         for i in (0, 3, 6, 7, 8):
@@ -203,7 +201,8 @@ class PropagatingAIRCell(AIRCell):
     _init_presence_value = 0.  # at the beginning we assume no objects
 
     def __init__(self, img_size, crop_size, n_what,
-                 transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor, debug=False):
+                 transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
+                 latent_scale=1.0, debug=False):
 
         super(PropagatingAIRCell, self).__init__(img_size, crop_size, n_what, transition, input_encoder,
                                                  glimpse_encoder, transform_estimator, steps_predictor,
@@ -211,31 +210,48 @@ class PropagatingAIRCell(AIRCell):
                                                  transition_only_on_object=True,
                                                  debug=debug)
 
+        with self._enter_variable_scope():
+            self._what_transform = MLP([self._n_hidden] * 2)
+            self._latent_scale = latent_scale
+
     def _parse_inpt(self, inpt, _):
         inpt, _ = inpt
         presence = inpt[2]
         return inpt, presence
 
+    def _compute_what(self, inpt, img, where_code):
+        what_tm1 = inpt[0]
+        code = self._extract_and_encode_glimpse(img, where_code)
+
+        inpt = tf.concat((code, what_tm1), -1)
+        what_params = self._what_transform(inpt)
+        what_params *= self._latent_scale
+
+        what_distrib = self._what_distrib(what_params)
+        return what_distrib.sample(), what_distrib.loc, what_distrib.scale
+
     def _compute_where(self, inpt, hidden_output):
         where_tm1 = inpt[1]
 
-        loc, scale = self._transform_estimator(hidden_output)
-        loc += where_tm1
-        # loc = where_tm1 + snt.Linear(4)(loc)
+        inpt = tf.concat((hidden_output, where_tm1), -1) * self._what_transform
+        loc, scale = self._transform_estimator(inpt)
+
         where_distrib = NormalWithSoftplusScale(loc, scale,
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
 
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 
     def _compute_presence(self, inpt, presence, hidden_output):
-        presence_logit_tm1 = inpt[3]
-        presence_logit = self._steps_predictor(hidden_output) + presence_logit_tm1
+        what_tm1, where_tm1, presence_tm1, presence_logit_tm1 = inpt
+
+
+        inpt = tf.concat((what_tm1, where_tm1, hidden_output), -1)
+        presence_logit = self._steps_predictor(inpt) #+ presence_logit_tm1
         presence_prob = tf.nn.sigmoid(presence_logit)
 
         presence_distrib = Bernoulli(probs=presence_prob, dtype=tf.float32,
                                      validate_args=self._debug, allow_nan_stats=not self._debug)
         new_presence = presence_distrib.sample()
-        presence_tm1 = inpt[2]
         # object can be present only if it was present at the previous timestep and it does not depend on different
         # object at this timestep
         presence = presence_tm1 * new_presence
