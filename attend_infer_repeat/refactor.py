@@ -46,12 +46,13 @@ def _extract_latents(hidden_outputs, key=None, skip=None):
 
 
 class AIRBase(snt.AbstractModule):
-    def __init__(self, num_step_distribution_class, n_steps, batch_size, cell):
+    def __init__(self, num_step_distribution_class, use_logit, n_steps, batch_size, cell):
         super(AIRBase, self).__init__()
+        self._num_step_distribution_class = num_step_distribution_class
+        self._use_logit = use_logit
         self._n_steps = n_steps
         self._batch_size = batch_size
         self._cell = cell
-        self._num_step_distribution_class = num_step_distribution_class
 
     def _unroll_timestep(self, inpt, hidden_state, seq_len=None):
 
@@ -72,7 +73,10 @@ class AIRBase(snt.AbstractModule):
         what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit \
             = hidden_outputs
 
-        num_steps_posterior = self._num_step_distribution_class(presence_prob[..., 0])
+        if self._use_logit:
+            num_steps_posterior = self._num_step_distribution_class(logits=presence_logit[..., 0])
+        else:
+            num_steps_posterior = self._num_step_distribution_class(presence_prob[..., 0])
 
         where_posterior = Normal(where_loc, where_scale)
         what_posterior = Normal(what_loc, what_scale)
@@ -85,20 +89,22 @@ class AIRBase(snt.AbstractModule):
 
 class AttendDiscoverRepeat(AIRBase):
     def __init__(self, n_steps, batch_size, cell, step_success_prob):
-        super(AttendDiscoverRepeat, self).__init__(NumStepsDistribution, n_steps, batch_size, cell)
+        super(AttendDiscoverRepeat, self).__init__(NumStepsDistribution, False, n_steps, batch_size, cell)
         self._what_prior = Normal(0., 1.)
         self._where_prior = Normal(0., 1.)
         self._num_steps_prior = Geometric(1. - step_success_prob)
 
     def _build(self, img, n_present_obj, conditioning=None):
-        hidden_outputs, num_steps, log_pres_prob = self._discover(img, n_present_obj, conditioning)
+        hidden_outputs, num_steps = self._discover(img, n_present_obj, conditioning)
         hidden_outputs = stack_states(hidden_outputs)
-        kl, kl_where, kl_what, kl_num_step = self._estimate_kl(hidden_outputs, num_steps)
+        kl, kl_where, kl_what, kl_num_step, num_steps_prob, log_num_steps_prob\
+            = self._estimate_kl(hidden_outputs, num_steps)
 
         outputs = AttrDict(
             hidden_outputs=hidden_outputs,
             num_steps=num_steps,
-            log_pres_prob=log_pres_prob,
+            log_num_steps_prob=log_num_steps_prob,
+            num_steps_prob=num_steps_prob,
             kl=kl,
             kl_where=kl_where,
             kl_what=kl_what,
@@ -118,11 +124,10 @@ class AttendDiscoverRepeat(AIRBase):
         conditioning = [conditioning] * self._n_steps
         hidden_outputs, inner_hidden_state = self._unroll_timestep(conditioning, initial_state,
                                                                    seq_len=max_disc_steps)
-        pres_prob, presence = _extract_latents(hidden_outputs, key='pres_prob pres'.split())
+        presence = _extract_latents(hidden_outputs, key='pres')
         num_steps = tf.reduce_sum(presence[..., 0], -1)
-        log_pres_prob = NumStepsDistribution(pres_prob[..., 0]).log_prob(num_steps[..., tf.newaxis])
 
-        return hidden_outputs, num_steps, log_pres_prob
+        return hidden_outputs, num_steps
 
     def _estimate_kl(self, hidden_outputs, num_steps):
         what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit \
@@ -143,14 +148,18 @@ class AttendDiscoverRepeat(AIRBase):
         kl_num_step = kl_by_sampling(num_steps_posterior, self._num_steps_prior, num_steps)
         kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_num_step
 
-        return kl, kl_where, kl_what, kl_num_step
+        log_num_steps_prob = num_steps_posterior.log_prob(num_steps[..., tf.newaxis])
+        num_steps_prob = num_steps_posterior.probs
+
+        return kl, kl_where, kl_what, kl_num_step, num_steps_prob, log_num_steps_prob
 
 
 class AttendPropagateRepeat(AIRBase):
     _num_step_distribution_class = PoissonBinomialDistribution
 
     def __init__(self, n_steps, batch_size, cell, prior_cell):
-        super(AttendPropagateRepeat, self).__init__(PoissonBinomialDistribution, n_steps, batch_size, cell)
+        # super(AttendPropagateRepeat, self).__init__(PoissonBinomialDistribution, n_steps, batch_size, cell)
+        super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell)
         self._prior_cell = prior_cell
 
     @property
@@ -173,16 +182,18 @@ class AttendPropagateRepeat(AIRBase):
         presence_tm1 = z_tm1[2]
 
         prior_stats, prior_state = self._update_prior(z_tm1, prior_state)
-        hidden_outputs, num_steps, log_pres_prob = self._propagate(img, z_tm1, temporal_state)
+        hidden_outputs, num_steps = self._propagate(img, z_tm1, temporal_state)
         hidden_outputs = stack_states(hidden_outputs)
-        kl, kl_where, kl_what, kl_num_step = self._estimate_kl(presence_tm1, hidden_outputs, num_steps, prior_stats)
+        kl, kl_where, kl_what, kl_num_step, prop_prob, log_prop_prob =\
+            self._estimate_kl(presence_tm1, hidden_outputs, num_steps, prior_stats)
 
         outputs = AttrDict(
             prior_stats=prior_stats,
             prior_state=prior_state,
             hidden_outputs=hidden_outputs,
             num_steps=num_steps,
-            log_pres_prob=log_pres_prob,
+            log_prop_prob=log_prop_prob,
+            prop_prob=prop_prob,
             kl=kl,
             kl_where=kl_where,
             kl_what=kl_what,
@@ -214,19 +225,11 @@ class AttendPropagateRepeat(AIRBase):
 
         hidden_outputs, inner_hidden_state = self._unroll_timestep(unstacked_z_tm1, initial_state)
 
-        pres_prob, presence = _extract_latents(hidden_outputs, key='pres_prob pres'.split())
+        # prop_prob, presence = _extract_latents(hidden_outputs, key='pres_prob pres'.split())
+        presence = _extract_latents(hidden_outputs, key='pres')
         num_steps = tf.reduce_sum(presence[..., 0], -1)
-        pres_tm1 = z_tm1[2]
 
-        clipped_prob = clip_preserve(pres_prob, 1e-16, 1. - 1e-7)
-        # # this is only for gradient computation later
-        # # if there was no object at the previous timestep, there's zero prob of being it now
-        # # so we just multiply by the presence before to mask out non-existent objects
-
-        log_pres_prob = Bernoulli(clipped_prob).log_prob(presence) * pres_tm1
-        log_pres_prob = tf.reduce_sum(log_pres_prob, -2)[..., 0]
-
-        return hidden_outputs, num_steps, log_pres_prob
+        return hidden_outputs, num_steps
 
     def _update_prior(self, z_tm1, prior_hidden_state):
         what_tm1, where_tm1, presence_tm1 = z_tm1[:3]
@@ -238,13 +241,15 @@ class AttendPropagateRepeat(AIRBase):
         rnn = snt.BatchApply(self._prior_cell)
 
         outputs, rnn_hidden_state = rnn(prior_rnn_inpt, rnn_hidden_state)
-        stats = snt.BatchApply(snt.Linear(2 * (4 + self.n_what)))(outputs)
+        n_outputs = 2 * (4 + self.n_what) + self._n_steps
+        stats = snt.BatchApply(snt.Linear(n_outputs))(outputs)
 
+        prop_prob_logit, stats = tf.split(stats, [self._n_steps, n_outputs - self._n_steps], -1)
         locs, scales = tf.split(stats, 2, -1)
         prior_where_loc, prior_what_loc = tf.split(locs, [4, self.n_what], -1)
         prior_where_scale, prior_what_scale = tf.split(tf.nn.softplus(scales), [4, self.n_what], -1)
 
-        prior_stats = [prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale]
+        prior_stats = [prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit]
 
         # discrete
         num_obj_tm1 = tf.reduce_sum(presence_tm1[..., 0], -1)
@@ -262,13 +267,17 @@ class AttendPropagateRepeat(AIRBase):
         what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit \
             = hidden_outputs
 
+        presence = presence[..., 0]
         presence_tm1 = presence_tm1[..., 0]
+        # num_step_tm1 = tf.reduce_sum(presence_tm1, -1)
+        # can_propagate = tf.to_float(tf.greater(num_step_tm1, 0.))
 
         # Latent Distribs
-        what_posterior, where_posterior, num_steps_posterior = self._make_posteriors(hidden_outputs)
+        what_posterior, where_posterior, prop_posterior = self._make_posteriors(hidden_outputs)
 
         # Prior Distribs
-        what_prior, where_prior, num_steps_prior = self._make_priors(prior_stats)
+        # what_prior, where_prior, num_steps_prior = self._make_priors(prior_stats)
+        what_prior, where_prior, prop_prior = self._make_priors(prior_stats)
 
         # KLs
         kl_what = kl_by_sampling(what_posterior, what_prior, what)
@@ -277,16 +286,24 @@ class AttendPropagateRepeat(AIRBase):
         kl_where = kl_by_sampling(where_posterior, where_prior, where)
         kl_where = tf.reduce_sum(kl_where, -1) * presence_tm1
 
-        kl_num_step = kl_by_sampling(num_steps_posterior, num_steps_prior, num_steps)
+        # kl_num_step = kl_by_sampling(num_steps_posterior, num_steps_prior, num_steps) * can_propagate
+        kl_num_step = kl_by_sampling(prop_posterior, prop_prior, presence) * presence_tm1
+        kl_num_step = tf.reduce_sum(kl_num_step, -1)
         kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_num_step
 
-        return kl, kl_where, kl_what, kl_num_step
+        prop_prob = prop_posterior.probs * presence_tm1
+        log_prop_prob = prop_posterior.log_prob(presence) * presence_tm1
+        log_prop_prob = tf.reduce_sum(log_prop_prob, -1)
 
-    def _make_priors(self, (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, num_obj_prior_probs)):
+        return kl, kl_where, kl_what, kl_num_step, prop_prob, log_prop_prob
+
+    def _make_priors(self, (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit, num_obj_prior_probs)):
         what_prior = Normal(prior_what_loc, prior_what_scale)
         where_prior = Normal(prior_where_loc, prior_where_scale)
-        num_step_prior = Categorical(probs=num_obj_prior_probs)
-        return what_prior, where_prior, num_step_prior
+        # num_step_prior = Categorical(probs=num_obj_prior_probs)
+        prop_prior = Bernoulli(logits=prop_prob_logit[..., 0])
+
+        return what_prior, where_prior, prop_prior
 
 
 class APDR(snt.AbstractModule):
@@ -330,7 +347,7 @@ class APDR(snt.AbstractModule):
             self._choose_latents(prop_output, disc_output, highest_used_ids, prev_ids)
 
         kl, kl_what, kl_where, kl_num_step = self._estimate_kl(prop_output, disc_output)
-        log_pres_prob = prop_output.log_pres_prob + disc_output.log_pres_prob
+        log_pres_prob = prop_output.log_prop_prob + disc_output.log_num_steps_prob
 
         outputs = AttrDict(
             hidden_outputs=hidden_outputs,

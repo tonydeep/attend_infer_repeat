@@ -1,24 +1,14 @@
-import unittest
 import time
-import tensorflow as tf
-import sonnet as snt
-
-from numpy.testing import assert_array_less, assert_array_equal, assert_array_almost_equal
+import unittest
 
 from attrdict import AttrDict
+from numpy.testing import assert_array_less, assert_array_equal, assert_array_almost_equal
 
-from attend_infer_repeat.mnist_model import SeqAIRonMNIST, KLBySamplingMixin, MNISTPriorMixin
-from attend_infer_repeat.seq_model import SeqAIRModel
-from attend_infer_repeat.elbo import AIRPriorMixin, KLMixin, LogLikelihoodMixin
+from attend_infer_repeat.mnist_model import KLBySamplingMixin, MNISTPriorMixin
 from attend_infer_repeat.modules import *
 from attend_infer_repeat.seq_mixins import SeparateSeqAIRMixin
-
+from attend_infer_repeat.seq_model import SeqAIRModel
 from testing_tools import print_trainable_variables
-
-# class AIRModelWithPriors(SeqAIRModel, AIRPriorMixin, KLMixin, LogLikelihoodMixin, SeparateSeqAIRMixin):
-# # class AIRModelWithPriors(SeqAIRModel, AIRPriorMixin, KLMixin, LogLikelihoodMixin, NaiveSeqAirMixin):
-#     importance_resample = True
-#     pass
 
 
 class AIRModelWithPriors(SeqAIRModel, MNISTPriorMixin, KLBySamplingMixin, SeparateSeqAIRMixin):
@@ -26,7 +16,6 @@ class AIRModelWithPriors(SeqAIRModel, MNISTPriorMixin, KLBySamplingMixin, Separa
     transition_class = snt.VanillaRNN
     time_transition_class = snt.GRU
     prior_rnn_class = snt.LSTM
-    # prior_rnn_class = snt.GRU
 
 
 def make_modules():
@@ -81,7 +70,7 @@ class SeqModelTest(unittest.TestCase):
         print 'Computed gradients'
         cls.register_time(time_start, time.clock(), 'Building model')
 
-        print_trainable_variables(cls.__name__)
+        cls.model_vars = print_trainable_variables(cls.__name__)
 
     @classmethod
     def tearDownClass(cls):
@@ -106,9 +95,8 @@ class SeqModelTest(unittest.TestCase):
         self.register_time(time_start, time.clock(), 'Forward pass')
 
 
-        # # Prop probability should be always zero at the first timestep
-        # assert_array_almost_equal(outputs.prop_prob[0, ..., 0], 1.)
-        # assert_array_almost_equal(outputs.prop_prob[0, ..., 1:], 0.)
+        # Prop probability should be always zero at the first timestep
+        assert_array_equal(outputs.prop_prob[0], 0.)
 
         # Number of steps; should be less or equal than the max specified
         num_step = outputs.num_step_per_sample
@@ -129,8 +117,8 @@ class SeqModelTest(unittest.TestCase):
         assert_array_almost_equal(summed_num_step, num_step)
 
         # Test KL
-        # ## Prop step KL should be zero at the first timestep
-        # assert_array_equal(outputs.kl_prop_steps_per_sample[0], 0.)
+        ## Prop step KL should be zero at the first timestep
+        assert_array_equal(outputs.kl_prop_steps_per_sample[0], 0.)
 
         ## individual values can be negative due to sampling, but the mean should be positive
         kls = 'where what steps prop_steps disc_steps'.split()
@@ -140,12 +128,6 @@ class SeqModelTest(unittest.TestCase):
             self.assertGreaterEqual(kl_value.mean(), 0., 'KL_{}: min = {}, mean = {}'.format(kl_name, kl_value.min(), kl_value.mean()))
 
         assert_array_equal(outputs.kl_prop_steps_per_sample + outputs.kl_disc_steps_per_sample, outputs.kl_steps_per_sample)
-
-        # for kl_name in kls:
-        #     kl_key = 'kl_{}_per_sample'.format(kl_name)
-        #     kl_value = outputs[kl_key]
-        #     assert_array_less(-1e-4, kl_value,
-        #                             'KL_{}: min = {}, mean = {}'.format(kl_name, kl_value.min(), kl_value.mean()))
 
         # print 'rnn_outputs:'
         for k, v in rnn_outputs.iteritems():
@@ -159,13 +141,33 @@ class SeqModelTest(unittest.TestCase):
             self.assertEqual(v.shape[0], self.n_timesteps, 'Invalid shape of {} in output "{}"'.format(v.shape, k))
             # print k, v.shape
 
-        print 'obj_ids'
+        # check that there are ids different from -1 and that at least some ids are propagated
+        # print 'obj_ids'
+        fraction_propagated = 0.
+        fraction_no_objects = 0.
         for i in xrange(self.batch_size):
-            print
+            unique_ids = set()
+            prop_ids = set()
+
             for t in xrange(self.n_timesteps):
-                print 'i={}, t={}, id={}, p={} prop_pres={}, disc_pres={}'\
-                    .format(i, t, outputs.obj_id[t, i].squeeze(), rnn_outputs.presence[t, i].squeeze(),
-                            outputs.prop_pres[t, i].squeeze(), outputs.disc_pres[t, i].squeeze())
+                ids = set(outputs.obj_id[t, i].squeeze())
+                prop_ids = prop_ids.union(ids.intersection(unique_ids))
+                unique_ids = unique_ids.union(ids)
+
+                # print 'i={}, t={}, id={}, p={} prop_pres={}, disc_pres={}'\
+                #     .format(i, t, outputs.obj_id[t, i].squeeze(), rnn_outputs.presence[t, i].squeeze(),
+                #             outputs.prop_pres[t, i].squeeze(), outputs.disc_pres[t, i].squeeze())
+
+            self.assertGreater(len(unique_ids), 1.)  # at least one object was discovered
+            if -1 in unique_ids:
+                fraction_no_objects += 1
+
+            prop_ids = prop_ids - {-1.}
+            if len(prop_ids) > 0.:
+                fraction_propagated += 1.
+
+        self.assertTrue(float(fraction_no_objects) / self.batch_size, .3)  # sometimes not all objects are present
+        self.assertGreater(float(fraction_propagated) / self.batch_size, .3) # check that sometimes SOME object are propagated
 
         # print
         print 'loss = {}'.format(l)
@@ -193,6 +195,11 @@ class SeqModelTest(unittest.TestCase):
     def test_learning_signal_shape(self):
         learning_signal_shape = self.air.num_steps_learning_signal.shape.as_list()
         self.assertEqual(learning_signal_shape, [self.batch_size, 1])
+
+    def test_num_vars(self):
+        """This is to ensure test failure whenever number of variables increases: it forces me to think why it happened
+        as I need to change this number explicitly to make tests run agian."""
+        self.assertEqual(len(self.model_vars), 59)
 
 
 

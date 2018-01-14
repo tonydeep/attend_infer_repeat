@@ -67,16 +67,18 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
 
     def test_shapes(self):
         num_hidden_outputs = 9
-        num_other_outputs = 7
+        num_other_outputs = 8
 
         self.assertEqual(len(self.output.hidden_outputs), num_hidden_outputs)
         self.assertEqual(len(self.output), num_other_outputs + len(self.output.hidden_outputs))
         for k, v in self.output.iteritems():
-            if k != 'hidden_outputs':
+            if k not in 'hidden_outputs num_steps_prob':
                 shape = v.shape.as_list()
                 self.assertEqual(shape[0], self.batch_size, '{} has incorrect shape={}'.format(k, v.shape))
                 if len(shape) > 1:
-                    self.assertEqual(shape[1], self.n_steps)
+                    self.assertEqual(shape[1], self.n_steps, '{} has incorrect shape={}'.format(k, v.shape))
+
+        assert_array_equal(self.output.num_steps_prob.shape.as_list(), [self.batch_size, self.n_steps + 1])
 
     def test_values(self):
 
@@ -132,7 +134,7 @@ class PropagateTest(ModuleTest, unittest.TestCase):
 
     def test_shapes(self):
         num_hidden_outputs = 9
-        num_other_outputs = 9
+        num_other_outputs = 10
 
         self.assertEqual(len(self.output.hidden_outputs), num_hidden_outputs)
         self.assertEqual(len(self.output), num_other_outputs + len(self.output.hidden_outputs))
