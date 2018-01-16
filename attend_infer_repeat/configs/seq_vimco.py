@@ -15,6 +15,8 @@ flags.DEFINE_float('init_step_success_prob', 1. - 1e-7, '')
 flags.DEFINE_float('final_step_success_prob', 1e-5, '')
 flags.DEFINE_float('n_anneal_steps_loss', 1e3, '')
 flags.DEFINE_float('min_glimpse_size', 0., '')
+flags.DEFINE_float('prop_logit_bias', 3., '')
+flags.DEFINE_float('prop_latent_scale_bias', 1., '')
 flags.DEFINE_integer('n_iw_samples', 5, '')
 flags.DEFINE_integer('n_steps_per_image', 3, '')
 flags.DEFINE_boolean('importance_resample', False, '')
@@ -41,6 +43,8 @@ def load(img, num):
         init_step_success_prob = f.init_step_success_prob
         final_step_success_prob = f.final_step_success_prob
         n_anneal_steps_loss = f.n_anneal_steps_loss
+        prop_logit_bias = f.prop_logit_bias
+        prop_latent_scale_bias = f.prop_latent_scale_bias
         transition_class = transition
         time_transition_class = time_transition
         prior_rnn_class = prior_transition
