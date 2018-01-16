@@ -32,7 +32,7 @@ class ExpedVimcoBaselineTest(testing_tools.TFTestBase):
         expected = np.asarray([3., 3., 2.]).reshape(1, 3)
         assert_array_equal(raw_control, expected)
 
-        control = self.eval(self.control, l, lm1)
+        control = self.eval(self.control, l, lm1) - VIMCOEstimator._control_shift
         assert_array_equal(control, expected)
 
     def test_raw_baseline(self):
@@ -62,5 +62,6 @@ class ExpedVimcoBaselineTest(testing_tools.TFTestBase):
         b2 = np.exp(np.asarray([1, 2., 3.]) - 3.).sum()
         b3 = np.exp(np.asarray([1, 2., 1.5]) - 2.).sum()
 
-        expected = np.asarray([b1, b2, b3]).reshape(1, 3)
+        baseline *= np.exp(VIMCOEstimator._control_shift)
+        expected = np.asarray([b1, b2, b3], dtype=np.float32).reshape(1, 3)
         assert_array_almost_equal(baseline, expected)

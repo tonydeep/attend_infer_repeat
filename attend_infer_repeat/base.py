@@ -7,7 +7,6 @@ from evaluation import gradient_summaries
 from grad import VIMCOEstimator
 from modules import AIRDecoder
 from ops import tile_input_for_iwae, gather_axis
-from prior import NumStepsDistribution
 
 
 # TODO: implement FIVO & per-timestep VIMCO for FIVO
@@ -16,7 +15,7 @@ from prior import NumStepsDistribution
 # not set it to any values but to set likelihood/kl/per-timestep elbos to zeros instead. It's harder to implement, though.
 # If the simple fix improves situation we can think about a more complicated but formally better solution.
 
-class SeqAIRModel(object):
+class BaseAPDRModel(object):
     """Generic AIR model
 
     :param analytic_kl_expectation: bool, computes expectation over conditional-KL analytically if True
@@ -37,16 +36,16 @@ class SeqAIRModel(object):
         :param max_steps: int, maximum number of steps to take (or objects in the image)
         :param glimpse_size: tuple of ints, size of the attention glimpse
         :param n_what: int, number of latent variables describing an object
-        :param transition: see :class: AIRCell
-        :param input_encoder: see :class: AIRCell
-        :param glimpse_encoder: see :class: AIRCell
+        :param transition: see :class: DiscoveryCell
+        :param input_encoder: see :class: DiscoveryCell
+        :param glimpse_encoder: see :class: DiscoveryCell
         :param glimpse_decoder: callable, decodes the glimpse from latent representation
-        :param transform_estimator: see :class: AIRCell
-        :param steps_predictor: see :class: AIRCell
+        :param transform_estimator: see :class: DiscoveryCell
+        :param steps_predictor: see :class: DiscoveryCell
         :param output_std: float, std. dev. of the output Gaussian distribution
         :param output_multiplier: float, a factor that multiplies the reconstructed glimpses
-        :param debug: see :class: AIRCell
-        :param **cell_kwargs: all other parameters are passed to AIRCell
+        :param debug: see :class: DiscoveryCell
+        :param **cell_kwargs: all other parameters are passed to DiscoveryCell
         """
 
         self.obs = obs
@@ -89,21 +88,16 @@ class SeqAIRModel(object):
     def _build(self, glimpse_decoder, *cell_args, **cell_kwargs):
         """Build the model. See __init__ for argument description"""
 
-        self.num_step_prior_prob, self.num_step_prior, \
-        self.scale_prior, self.shift_prior, self.what_prior = self._make_priors()
-
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
-
-        self.cells = self._make_cells(*cell_args, **cell_kwargs)
-        self.cell = self.cells[0]
+        self._build_model(*cell_args, **cell_kwargs)
 
         res = self._time_loop()
         # self.final_state = res[2]
         # self.cumulative_imp_weights = res[4]
         tas = res[self.non_ta_output_len:]
-        self.output_names = self.ta_names[len(self.cell.output_names):]
+        self.output_names = self.ta_names[self.num_rnn_outputs:]
 
-        for name, ta in zip(self.cell.output_names + self.output_names, tas):
+        for name, ta in zip(self.rnn_output_names + self.output_names, tas):
             output = ta.stack()
             setattr(self, name, output)
 
@@ -111,9 +105,7 @@ class SeqAIRModel(object):
 
         self.cumulative_iw_elbo_per_sample, _ = estimate_importance_weighted_elbo(self.batch_size, self.iw_samples,
                                                                                   self.cumulative_elbo_per_sample)
-
         resampling_logits = tf.reshape(self.cumulative_elbo_per_sample, (self.batch_size, self.iw_samples))
-        # resampling_logits = tf.clip_by_value(resampling_logits, -1e16, 1e16)
         self.cumulative_imp_distrib = tf.contrib.distributions.Categorical(logits=resampling_logits)
         self.imp_resampling_idx = self.cumulative_imp_distrib.sample()
 
@@ -184,10 +176,10 @@ class SeqAIRModel(object):
             self.nelbo_per_sample = -tf.reshape(self.cumulative_iw_elbo_per_sample, (self.batch_size, 1))
 
         num_steps_learning_signal = self.nelbo_per_sample
-        self.nelbo = tf.reduce_mean(self.nelbo_per_sample)
+        self.nelbo = tf.reduce_mean(self.nelbo_per_sample) / self.n_timesteps
 
         self.reinforce_loss = self._reinforce(num_steps_learning_signal - r_imp_weight, posterior_num_steps_log_prob)
-        self.proxy_loss = (self.nelbo + self.reinforce_loss) / self.n_timesteps
+        self.proxy_loss = self.nelbo + self.reinforce_loss / self.n_timesteps
 
         opt = make_opt(self.learning_rate)
         gvs = opt.compute_gradients(self.proxy_loss, var_list=self.model_vars)

@@ -1,11 +1,11 @@
 import unittest
 
-from numpy.testing import assert_array_equal, assert_array_less
+from numpy.testing import assert_array_equal, assert_array_almost_equal, assert_array_less
 
-from attend_infer_repeat.cell import AIRCell, PropagatingAIRCell
+from attend_infer_repeat.cell import DiscoveryCell, PropagationCell
 from attend_infer_repeat.modules import *
-from attend_infer_repeat.refactor import APDR
-from attend_infer_repeat.refactor import AttendDiscoverRepeat, AttendPropagateRepeat
+from attend_infer_repeat.apdr import APDR
+from attend_infer_repeat.apdr import AttendDiscoverRepeat, AttendPropagateRepeat
 from testing_tools import flatten_check, print_trainable_variables
 
 
@@ -53,7 +53,7 @@ class ModuleTest(object):
 class DiscoverTest(ModuleTest, unittest.TestCase):
     @classmethod
     def _make_model(cls):
-        air_cell = AIRCell(cls.img_size, cls.crop_size, cls.n_latent, condition_on_inpt=False, **cls.modules)
+        air_cell = DiscoveryCell(cls.img_size, cls.crop_size, cls.n_latent, condition_on_inpt=False, **cls.modules)
 
         # cls.num_present_objects = tf.zeros((cls.batch_size,), name='num_present_objects')
         cls.num_present_objects = tf.to_float(tf.random_uniform((cls.batch_size,), 0, cls.n_steps + 1,
@@ -107,14 +107,13 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
 class PropagateTest(ModuleTest, unittest.TestCase):
     @classmethod
     def _make_model(cls):
-        air_cell = PropagatingAIRCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.modules)
+        air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.modules)
         cls.prior_cell = snt.GRU(3)
 
         cls.init_rnn_state = cls.prior_cell.initial_state(cls.batch_size, tf.float32, trainable=True)
         cls.prior_rnn_state = tf.tile(tf.expand_dims(cls.init_rnn_state, -2), (1, cls.n_steps, 1))
 
         cls.num_obj_counts = tf.ones((cls.batch_size, cls.n_steps + 1))
-        cls.prior_state = [cls.prior_rnn_state, cls.num_obj_counts]
 
         cls.what_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, cls.n_latent), name='what_tm1')
         cls.where_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, 4), name='where_tm1')
@@ -129,7 +128,7 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         cls.temporal_conditioning, _ = cls.temporal_cell(cls.temporal_state[0], cls.temporal_state)
 
         model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell)
-        output = model(cls.img, cls.z_tm1, cls.temporal_conditioning, cls.prior_state)
+        output = model(cls.img, cls.z_tm1, cls.temporal_conditioning, cls.prior_rnn_state)
         return air_cell, model, output
 
     def test_shapes(self):
@@ -154,6 +153,14 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         for k, v in values.iteritems():
             self.assertFalse(flatten_check(v, np.isnan), 'NaNs in {}'.format(k))
             self.assertFalse(flatten_check(v, np.isinf), 'infs in {}'.format(k))
+
+        print 'kl', values.kl.mean()
+        print 'kl what', values.kl_what.sum(-1).mean()
+        print 'kl where', values.kl_where.sum(-1).mean()
+        print 'kl prop', values.kl_num_step.mean()
+
+        # KL should be the sum of three KL terms
+        assert_array_almost_equal(values.kl, values.kl_what.sum(-1) + values.kl_where.sum(-1) + values.kl_num_step, 4)
 
         # KL is estimated by sampling, but mean should be nonnegative
         self.assertGreaterEqual(values.kl.mean(), 0.)
@@ -225,10 +232,9 @@ class APDRTest(unittest.TestCase):
 
         cls.apdr = APDR(cls.n_steps, cls.batch_size, cls.prop_model, cls.disc_model, cls.temporal_cell)
         cls.init_prior_rnn_state = cls.apdr.prior_init_state()
-        cls.prior_rnn_state = tf.tile(tf.expand_dims(cls.init_prior_rnn_state, -2), (1, cls.n_steps, 1))
+        cls.prop_prior_rnn_state = tf.tile(tf.expand_dims(cls.init_prior_rnn_state, -2), (1, cls.n_steps, 1))
 
         cls.num_obj_counts = tf.ones((cls.batch_size, cls.n_steps + 1))
-        cls.prop_prior_state = [cls.prior_rnn_state, cls.num_obj_counts]
 
         cls.what_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, cls.n_latent), name='what_tm1')
         cls.where_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, 4), name='where_tm1')
@@ -254,7 +260,7 @@ class APDRTest(unittest.TestCase):
 
         cls.prev_ids = prev_ids * cls.pres_tm1 - (1 - cls.pres_tm1)
 
-        cls.output = cls.apdr(cls.img, cls.z_tm1, cls.temporal_state, cls.prop_prior_state,
+        cls.output = cls.apdr(cls.img, cls.z_tm1, cls.temporal_state, cls.prop_prior_rnn_state,
                               cls.highest_used_id, cls.prev_ids)
 
         cls.sess = tf.Session()
@@ -266,7 +272,7 @@ class APDRTest(unittest.TestCase):
     @classmethod
     def _make_discovery_model(cls):
         cls.disc_modules = make_modules()
-        air_cell = AIRCell(cls.img_size, cls.crop_size, cls.n_latent, condition_on_inpt=False, **cls.disc_modules)
+        air_cell = DiscoveryCell(cls.img_size, cls.crop_size, cls.n_latent, condition_on_inpt=False, **cls.disc_modules)
 
         # cls.num_present_objects = tf.zeros((cls.batch_size,), name='num_present_objects')
         cls.num_present_objects = tf.to_float(tf.random_uniform((cls.batch_size,), 0, cls.n_steps + 1,
@@ -279,7 +285,7 @@ class APDRTest(unittest.TestCase):
     @classmethod
     def _make_propagation_model(cls):
         cls.prop_modules = make_modules()
-        air_cell = PropagatingAIRCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.prop_modules)
+        air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.prop_modules)
         cls.prior_cell = snt.GRU(cls.n_latent)
 
         model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell)
@@ -303,9 +309,8 @@ class APDRTest(unittest.TestCase):
         for i, (z, es) in enumerate(zip(self.output.z_t, expected_shapes)):
             self.assertEqual(z.shape, (self.batch_size, self.n_steps, es))
 
-        prop_prior_state = self.output.prop_prior_state
-        self.assertEqual(prop_prior_state[0].shape, (self.batch_size, self.n_steps, self.n_latent))
-        self.assertEqual(prop_prior_state[1].shape, (self.batch_size, self.n_steps + 1))
+        prop_prior_rnn_state = self.output.prop_prior_state
+        self.assertEqual(prop_prior_rnn_state.shape, (self.batch_size, self.n_steps, self.n_latent))
 
         outputs = dict(self.output)
         for k in 'prop disc hidden_outputs prop_prior_state z_t temporal_hidden_state'.split():
@@ -365,11 +370,11 @@ class APDRTest(unittest.TestCase):
         # all prior hidden states should be equal to the initial hidden state, since they are initialised
         # anew for every discovered objects
         pres = values.presence.squeeze()
-        prior_rnn_state, obj_counts = values.prop_prior_state
+        prop_prior_rnn_state = values.prop_prior_state
         for i in xrange(self.batch_size):
             for j in xrange(self.n_steps):
                 if pres[i, j]:
-                    assert_array_equal(prior_rnn_state[i, j], init_rnn_state)
+                    assert_array_equal(prop_prior_rnn_state[i, j], init_rnn_state)
 
     def test_all_ones_presence(self):
         """Some objects should be propagated and all propagated objects should have the same ids"""
@@ -402,18 +407,18 @@ class APDRTest(unittest.TestCase):
         # states to check
         prop_num_step = values.prop.num_steps.squeeze()
         # disc_num_step = values.disc.num_steps.squeeze()
-        prior_rnn_state = values.prop_prior_state[0]
+        prop_prior_rnn_state = values.prop_prior_state
         total_objs = values.num_steps.squeeze()
 
         for i in xrange(self.batch_size):
             for j in xrange(prop_num_step[i]):
                 # print i, j
-                # print prior_rnn_state[i, j, :5], init_rnn_state[:5]
+                # print prop_prior_rnn_state[i, j, :5], init_rnn_state[:5]
                 # different than the initial state
-                self.assertFalse((prior_rnn_state[i, j] == init_rnn_state).all())
+                self.assertFalse((prop_prior_rnn_state[i, j] == init_rnn_state).all())
                 # different than states for previous objects at this timesteps
                 for k in xrange(j):
-                    self.assertFalse((prior_rnn_state[i, j] == prior_rnn_state[i, k]).all())
+                    self.assertFalse((prop_prior_rnn_state[i, j] == prop_prior_rnn_state[i, k]).all())
 
             # here we check until prop_num_step[i] + disc_num_step[i], because some states might
             # be populated by propagated states for which prop_presence==0
@@ -422,6 +427,6 @@ class APDRTest(unittest.TestCase):
             # for j in xrange(prop_num_step[i], self.n_steps):
             for j in xrange(prop_num_step[i], total_objs[i]):
                 # print i, j
-                # print prior_rnn_state[i, j, :5], init_rnn_state[:5]
-                assert_array_equal(prior_rnn_state[i, j], init_rnn_state)
+                # print prop_prior_rnn_state[i, j, :5], init_rnn_state[:5]
+                assert_array_equal(prop_prior_rnn_state[i, j], init_rnn_state)
                 # print 'end disc'

@@ -2,16 +2,20 @@ import time
 import unittest
 
 from attrdict import AttrDict
+
+import numpy as np
 from numpy.testing import assert_array_less, assert_array_equal, assert_array_almost_equal
 
-from attend_infer_repeat.mnist_model import KLBySamplingMixin, MNISTPriorMixin
-from attend_infer_repeat.modules import *
-from attend_infer_repeat.seq_mixins import SeparateSeqAIRMixin
-from attend_infer_repeat.seq_model import SeqAIRModel
+import tensorflow as tf
+import sonnet as snt
+
+from attend_infer_repeat.mnist_model import MNISTPriorMixin
+from attend_infer_repeat.modules import Decoder, Encoder, StepsPredictor, StochasticTransformParam
+from attend_infer_repeat.model import APDRModel
 from testing_tools import print_trainable_variables
 
 
-class AIRModelWithPriors(SeqAIRModel, MNISTPriorMixin, KLBySamplingMixin, SeparateSeqAIRMixin):
+class APDRModelMock(APDRModel, MNISTPriorMixin):
     importance_resample = True
     transition_class = snt.VanillaRNN
     time_transition_class = snt.GRU
@@ -26,11 +30,11 @@ def make_modules():
         glimpse_encoder=(lambda: Encoder(7)),
         glimpse_decoder=(lambda x: Decoder(11, x)),
         transform_estimator=(lambda: StochasticTransformParam(13)),
-        steps_predictor=(lambda: StepsPredictor(17, steps_bias=1.))
+        steps_predictor=(lambda: StepsPredictor(17, steps_bias=2.))
     )
 
 
-class SeqModelTest(unittest.TestCase):
+class APDRModelTest(unittest.TestCase):
     learning_rate = 1e-4
     batch_size = 10
     img_size = (5, 7)
@@ -52,15 +56,12 @@ class SeqModelTest(unittest.TestCase):
         print 'Building AIR'
         cls.modules = make_modules()
         time_start = time.clock()
-        cls.air = AIRModelWithPriors(cls.imgs, cls.n_steps_per_image, cls.crop_size, cls.n_what,
-                                     condition_on_prev=True,
-                                     condition_on_latents=True,
-                                     transition_only_on_object=True,
-                                     iw_samples=cls.iw_samples,
-                                     **cls.modules
-                                     )
+        cls.air = APDRModelMock(cls.imgs, cls.n_steps_per_image, cls.crop_size, cls.n_what,
+                                iw_samples=cls.iw_samples,
+                                **cls.modules
+                                )
 
-        cls.rnn_outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.cell.output_names})
+        cls.rnn_outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.rnn_output_names})
         cls.outputs = AttrDict({k: getattr(cls.air, k) for k in cls.air.output_names})
         print 'Constructed model'
 
@@ -76,7 +77,7 @@ class SeqModelTest(unittest.TestCase):
     def tearDownClass(cls):
         for k, v in cls.timer_dict.iteritems():
             print '{} took {}s'.format(k, v)
-        super(SeqModelTest, cls).tearDownClass()
+        super(APDRModelTest, cls).tearDownClass()
 
     @classmethod
     def register_time(cls, start_time, end_time, name):
@@ -152,11 +153,14 @@ class SeqModelTest(unittest.TestCase):
             for t in xrange(self.n_timesteps):
                 ids = set(outputs.obj_id[t, i].squeeze())
                 prop_ids = prop_ids.union(ids.intersection(unique_ids))
+                disc_ids = ids - unique_ids
                 unique_ids = unique_ids.union(ids)
 
                 # print 'i={}, t={}, id={}, p={} prop_pres={}, disc_pres={}'\
                 #     .format(i, t, outputs.obj_id[t, i].squeeze(), rnn_outputs.presence[t, i].squeeze(),
                 #             outputs.prop_pres[t, i].squeeze(), outputs.disc_pres[t, i].squeeze())
+
+                print 't', t, 'num_disc', len(disc_ids), disc_ids
 
             self.assertGreater(len(unique_ids), 1.)  # at least one object was discovered
             if -1 in unique_ids:

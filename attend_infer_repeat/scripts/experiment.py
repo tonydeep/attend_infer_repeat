@@ -8,8 +8,7 @@ import tensorflow as tf
 
 from evaluation import ProgressFig, make_logger
 from experiment_tools import load, init_checkpoint, parse_flags, print_flags, set_flags_if_notebook, is_notebook
-
-from attend_infer_repeat import tf_flags
+from attend_infer_repeat import tf_flags, evaluation
 
 import matplotlib.pyplot as plt
 
@@ -43,21 +42,21 @@ tf_flags.DEFINE_float('eval_size_fraction', .01, '')
 
 # In[ ]:
 
-
 set_flags_if_notebook(
 #     data_config='configs/static_mnist_data.py',
-    seq_len=3,
-    n_steps_per_image=4,
+    seq_len=5,
+    n_steps_per_image=3,
     n_iw_samples=5,
 #     
     log_every=100,
     eval_size_fraction=0.01,
 #     
     learning_rate=1e-5,
-    importance_resample=False,
+    importance_resample=True,
+    step_bias=1.,
+#     init_step_success_prob=.9,
 #     
-    condition_on_latents=True,
-    transition='VanillaRNN',
+#     resume=True
 )
 
 # Parse flags
@@ -118,7 +117,12 @@ train_batches, valid_batches = [int(data_dict[k]['imgs'].shape[ax] * factor) for
 log = make_logger(air, sess, summary_writer, data_dict.train_tensors,
                   train_batches, data_dict.valid_tensors, valid_batches)
 
-progress_fig = ProgressFig(air, sess, logdir)
+progress_fig = ProgressFig(air, sess, logdir, seq_n_samples=16)
+
+
+# In[ ]:
+
+# progress_fig.plot_all(save=False)
 
 
 # In[ ]:

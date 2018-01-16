@@ -6,25 +6,26 @@ from tensorflow.python.util import nest
 
 from modules import SpatialTransformer, ParametrisedGaussian
 from neural import MLP
+import ops
 
 
-def conditional_concat(cond, *inpts):
-    if cond:
-        return tf.concat(inpts, -1)
-    return inpts[0]
-
-
-class AIRCell(snt.RNNCore):
-    """RNN cell that implements the core features of Attend, Infer, Repeat, as described here:
-    https://arxiv.org/abs/1603.08575
-    """
+class BaseAPDRCell(snt.RNNCore):
     _n_transform_param = 4
     _init_presence_value = 1.  # at the beginning we assume all objects were present
+    _output_names = 'what what_loc what_scale where where_loc where_scale presence_prob presence presence_logit'.split()
+
+    _latent_name_to_idx = dict(
+        what=0,
+        where=3,
+        pres_prob=6,
+        pres=7,
+        pres_logit=8,
+    )
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                  condition_on_latents=True,
-                 condition_on_inpt=True, transition_only_on_object=False, debug=False):
+                 condition_on_inpt=True, debug=False):
         """Creates the cell
 
         :param img_size: int tuple, size of the image
@@ -38,7 +39,7 @@ class AIRCell(snt.RNNCore):
         :param debug: boolean, adds checks for NaNs in the inputs to distributions
         """
 
-        super(AIRCell, self).__init__()
+        super(BaseAPDRCell, self).__init__()
         self._img_size = img_size
         self._n_pix = np.prod(self._img_size)
         self._crop_size = crop_size
@@ -49,7 +50,6 @@ class AIRCell(snt.RNNCore):
         self._condition_on_latents = condition_on_latents
         self._condition_on_inpt = condition_on_inpt
         self._debug = debug
-        self._transition_only_on_object = transition_only_on_object
 
         with self._enter_variable_scope():
 
@@ -89,7 +89,34 @@ class AIRCell(snt.RNNCore):
 
     @property
     def output_names(self):
-        return 'what what_loc what_scale where where_loc where_scale presence_prob presence presence_logit'.split()
+        return self._output_names
+
+    @staticmethod
+    def outputs_by_name(hidden_outputs):
+        return {n: o for n, o in zip(DiscoveryCell._output_names, hidden_outputs)}
+
+    @staticmethod
+    def extract_latents(hidden_outputs, key=None, skip=None):
+        if key is not None and skip is not None:
+            raise ValueError("Either `key' or `skip' have to be None, but both are not!")
+
+        if skip is not None:
+            key = (k for k in DiscoveryCell._latent_name_to_idx.keys() if k not in nest.flatten(skip))
+            latent_idx = sorted((DiscoveryCell._latent_name_to_idx[k] for k in key))
+
+        elif key is None:
+            latent_idx = sorted(DiscoveryCell._latent_name_to_idx.values())
+        else:
+            latent_idx = (DiscoveryCell._latent_name_to_idx[k] for k in nest.flatten(key))
+
+        if isinstance(hidden_outputs[0], tf.Tensor):
+            latents = [hidden_outputs[i] for i in latent_idx]
+        else:
+            latents = [ops.extract_state(hidden_outputs, i) for i in latent_idx]
+
+        if len(latents) == 1:
+            latents = latents[0]
+        return latents
 
     def initial_state(self, img, hidden_state=None):
         batch_size = img.get_shape().as_list()[0]
@@ -106,9 +133,10 @@ class AIRCell(snt.RNNCore):
         init_presence = tf.ones((batch_size, 1), dtype=tf.float32) * self._init_presence_value
         return [flat_img, what_code, where_code, init_presence, hidden_state]
 
-    def _parse_inpt(self, inpt, presence):
-        inpt, is_allowed = inpt
-        return inpt, is_allowed * presence
+    def _extract_and_encode_glimpse(self, img, where_code):
+        cropped = self._spatial_transformer(img, logits=where_code)
+        flat_crop = snt.BatchFlatten()(cropped)
+        return self._glimpse_encoder(flat_crop)
 
     def _prepare_rnn_inputs(self, inpt, img, what, where, presence):
         transition_inpt = self._input_encoder(img)
@@ -125,33 +153,6 @@ class AIRCell(snt.RNNCore):
             transition_inpt = transition_inpt[0]
 
         return transition_inpt
-
-    def _extract_and_encode_glimpse(self, img, where_code):
-        cropped = self._spatial_transformer(img, logits=where_code)
-        flat_crop = snt.BatchFlatten()(cropped)
-        return self._glimpse_encoder(flat_crop)
-
-    def _compute_what(self, inpt, img, where_code):
-        what_params = self._extract_and_encode_glimpse(img, where_code)
-        what_distrib = self._what_distrib(what_params)
-        return what_distrib.sample(), what_distrib.loc, what_distrib.scale
-
-    def _compute_where(self, inpt, hidden_output):
-        where_param = self._transform_estimator(hidden_output)
-        where_distrib = NormalWithSoftplusScale(*where_param,
-                                                validate_args=self._debug, allow_nan_stats=not self._debug)
-        return where_distrib.sample(), where_distrib.loc, where_distrib.scale
-
-    def _compute_presence(self, inpt, presence, hidden_output):
-        presence_logit = self._steps_predictor(hidden_output)
-        presence_prob = tf.nn.sigmoid(presence_logit)
-
-        presence_distrib = Bernoulli(probs=presence_prob, dtype=tf.float32,
-                                     validate_args=self._debug, allow_nan_stats=not self._debug)
-        new_presence = presence_distrib.sample()
-        presence *= new_presence
-
-        return presence, presence_prob, presence_logit
 
     def _maybe_transition(self, is_allowed, output, old_state, new_state):
         """Implements sequence lengths
@@ -197,18 +198,45 @@ class AIRCell(snt.RNNCore):
         return self._maybe_transition(is_allowed, output, state, new_state)
 
 
-class PropagatingAIRCell(AIRCell):
+class DiscoveryCell(BaseAPDRCell):
+
+    def _parse_inpt(self, inpt, presence):
+        inpt, is_allowed = inpt
+        return inpt, is_allowed * presence
+
+    def _compute_what(self, inpt, img, where_code):
+        what_params = self._extract_and_encode_glimpse(img, where_code)
+        what_distrib = self._what_distrib(what_params)
+        return what_distrib.sample(), what_distrib.loc, what_distrib.scale
+
+    def _compute_where(self, inpt, hidden_output):
+        where_param = self._transform_estimator(hidden_output)
+        where_distrib = NormalWithSoftplusScale(*where_param,
+                                                validate_args=self._debug, allow_nan_stats=not self._debug)
+        return where_distrib.sample(), where_distrib.loc, where_distrib.scale
+
+    def _compute_presence(self, inpt, presence, hidden_output):
+        presence_logit = self._steps_predictor(hidden_output)
+        presence_prob = tf.nn.sigmoid(presence_logit)
+
+        presence_distrib = Bernoulli(probs=presence_prob, dtype=tf.float32,
+                                     validate_args=self._debug, allow_nan_stats=not self._debug)
+        new_presence = presence_distrib.sample()
+        presence *= new_presence
+
+        return presence, presence_prob, presence_logit
+
+
+class PropagationCell(BaseAPDRCell):
     _init_presence_value = 0.  # at the beginning we assume no objects
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                  latent_scale=1.0, debug=False):
 
-        super(PropagatingAIRCell, self).__init__(img_size, crop_size, n_what, transition, input_encoder,
-                                                 glimpse_encoder, transform_estimator, steps_predictor,
-                                                 condition_on_latents=True, condition_on_inpt=True,
-                                                 transition_only_on_object=True,
-                                                 debug=debug)
+        super(PropagationCell, self).__init__(img_size, crop_size, n_what, transition, input_encoder,
+                                              glimpse_encoder, transform_estimator, steps_predictor,
+                                              debug=debug)
 
         with self._enter_variable_scope():
             self._what_transform = MLP([self._n_hidden] * 2)
@@ -233,7 +261,8 @@ class PropagatingAIRCell(AIRCell):
     def _compute_where(self, inpt, hidden_output):
         where_tm1 = inpt[1]
 
-        inpt = tf.concat((hidden_output, where_tm1), -1) * self._what_transform
+        inpt = tf.concat((hidden_output, where_tm1), -1) * self._latent_scale
+
         loc, scale = self._transform_estimator(inpt)
 
         where_distrib = NormalWithSoftplusScale(loc, scale,
@@ -257,90 +286,3 @@ class PropagatingAIRCell(AIRCell):
         presence = presence_tm1 * new_presence
 
         return presence, presence_prob, presence_logit
-
-
-class SeqAIRCell(snt.RNNCore):
-
-    def __init__(self, n_steps, air_cell):
-        super(SeqAIRCell, self).__init__()
-        self._n_steps = n_steps
-        self._cell = air_cell
-
-    @property
-    def state_size(self):
-        return [
-            [   # from previous timestep
-                self._n_steps * self._cell._n_what,  # what
-                self._n_steps * self._cell._n_transform_param,  # where
-                self._n_steps * 1,  # presence
-            ],
-            self._cell.state_size[1:],
-          # 1, # per-sample elbo estimate, needed in the state for FIVO: resample at the beginning of every step
-          # 1, # per-sample cumulative elbo estimate, needed in the state for IWAE: resample after all steps
-
-        ]
-
-    @property
-    def output_size(self):
-        os = self._cell.output_size
-        os = [self._n_steps * o for o in os]
-
-        # self._n_steps, # per-sample per-step kl_what
-        # self._n_steps, # per-sample per-step kl_where
-        # self._n_steps, # per-sample per-step rec_loss
-        # 1,             # per-sample elbo estimate
-
-        return os
-
-    @property
-    def output_names(self):
-        cell_output_names = self._cell.output_names
-        return cell_output_names
-
-    def initial_inpt(self, batch_size):
-        # TODO: trainable or sampled from a prior
-        with self._enter_variable_scope():
-            what = tf.zeros((1, self._cell._n_what))
-            where = tf.zeros((1, self._cell._n_transform_param))
-            presence = tf.zeros((1, 1))
-            return [tf.tile(i, (batch_size, self._n_steps)) for i in what, where, presence]
-
-    def initial_state(self, img):
-        batch_size = int(img.shape[0])
-        z_tm1 = self.initial_inpt(batch_size)
-
-        hidden_state = self._cell.initial_state(img)
-        return z_tm1, hidden_state[1:]
-
-    def _build(self, img, state):
-
-        batch_size = int(img.shape[0])
-        z_tm1, inner_state = state
-
-        # prepare latents
-        z_tm1 = [tf.reshape(i, (batch_size, self._n_steps, -1)) for i in z_tm1]
-
-        # prepare state
-        flat_img = tf.reshape(img, (batch_size, self._cell._n_pix))
-        hidden_state = [flat_img] + inner_state
-
-        # inner RNN loop
-        hidden_outputs = []
-        for i in xrange(self._n_steps):
-            z_tm1_per_object = [z[..., i, :] for z in z_tm1]
-            hidden_output, hidden_state = self._cell(z_tm1_per_object, hidden_state)
-            hidden_outputs.append(hidden_output)
-
-        # merge & flatten states
-        hidden_outputs = zip(*hidden_outputs)
-        for i, ho in enumerate(hidden_outputs):
-            hidden_outputs[i] = tf.concat(ho, -1)
-
-        # extract latents
-        z = [hidden_outputs[i] for i in [0, 3, 7]]
-
-        # we overwrite only the hidden state of the inner rnn
-        inner_state[-1] = hidden_state[-1]
-        state = z, inner_state
-
-        return hidden_outputs, state

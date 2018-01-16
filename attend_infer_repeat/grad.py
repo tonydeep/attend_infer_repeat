@@ -208,6 +208,7 @@ class ImportanceWeightedNVILEstimator(ImportanceWeightedMixin, EstimatorBaseline
 class VIMCOEstimator(ImportanceWeightedMixin):
     decay_rate = None
     n_anneal_steps_loss = 1.
+    _control_shift = - 78.
 
     def _make_train_step(self, make_opt, rec_loss_per_sample, kl_div_per_sample):
         assert self.iw_samples >= 2, 'VIMCO requires at least two importance samples'
@@ -320,7 +321,7 @@ class VIMCOEstimator(ImportanceWeightedMixin):
     def _exped_baseline_and_control(reshaped_per_sample_elbo, all_but_one_average):
 
         baseline = VIMCOEstimator._raw_baseline(reshaped_per_sample_elbo, all_but_one_average)
-        control = VIMCOEstimator._control(baseline) - 78.
+        control = VIMCOEstimator._control(baseline) + VIMCOEstimator._control_shift
 
         baseline = tf.reduce_sum(tf.exp(baseline - control[..., tf.newaxis, :]), -2)
         return baseline, control

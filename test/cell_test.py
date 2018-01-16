@@ -2,7 +2,7 @@ import unittest
 import tensorflow as tf
 import sonnet as snt
 
-from attend_infer_repeat.cell import AIRCell
+from attend_infer_repeat.cell import DiscoveryCell
 from attend_infer_repeat.modules import *
 
 
@@ -31,7 +31,7 @@ class CellTest(unittest.TestCase):
 
         # transition = snt.GRU(n_latent)
         modules = make_modules()
-        air = AIRCell(img_size, crop_size, n_latent, **modules)
+        air = DiscoveryCell(img_size, crop_size, n_latent, **modules)
         initial_state = air.initial_state(x)
 
         inpt_shape = (n_steps, batch_size, 1)
