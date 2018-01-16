@@ -28,7 +28,6 @@ class BaseAPDRModel(object):
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
                  output_std=1., output_multiplier=1., iw_samples=1,
-                 condition_on_prev=False,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -55,8 +54,6 @@ class BaseAPDRModel(object):
         self.output_std = output_std
         self.output_multiplier = output_multiplier
         self.iw_samples = iw_samples
-
-        self.condition_on_prev = condition_on_prev
 
         self.debug = debug
 

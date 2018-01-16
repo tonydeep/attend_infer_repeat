@@ -132,7 +132,7 @@ class APDRModel(BaseAPDRModel):
         # parse inputs
         img = img_seq[t]
 
-        apdr_outputs = self.apdr(img, z_tm1, time_state, prop_prior_hidden_state, last_used_id, prev_ids)
+        apdr_outputs = self.apdr(img, z_tm1, time_state, prop_prior_hidden_state, last_used_id, prev_ids, t)
         hidden_outputs = apdr_outputs.hidden_outputs
         z_t = [what, where, presence, pres_logit] = BaseAPDRCell.extract_latents(hidden_outputs, skip='pres_prob'.split())
 
