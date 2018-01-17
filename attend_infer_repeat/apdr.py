@@ -15,13 +15,14 @@ from prior import PoissonBinomialDistribution, NumStepsDistribution
 
 
 class AIRBase(snt.AbstractModule):
-    def __init__(self, num_step_distribution_class, use_logit, n_steps, batch_size, cell):
+    def __init__(self, num_step_distribution_class, use_logit, n_steps, batch_size, cell, anneal_weight=1.):
         super(AIRBase, self).__init__()
         self._num_step_distribution_class = num_step_distribution_class
         self._use_logit = use_logit
         self._n_steps = n_steps
         self._batch_size = batch_size
         self._cell = cell
+        self._anneal_weight = anneal_weight
 
     def _unroll_timestep(self, inpt, hidden_state, seq_len=None):
 
@@ -52,11 +53,16 @@ class AIRBase(snt.AbstractModule):
         what_posterior = Normal(what_loc, what_scale)
 
         return what_posterior, where_posterior, num_steps_posterior
+    
+    def kl_by_sampling(self, q, p, samples):
+        return kl_by_sampling(q, p, samples, p_weight=self._anneal_weight)
 
 
 class AttendDiscoverRepeat(AIRBase):
-    def __init__(self, n_steps, batch_size, cell, step_success_prob):
-        super(AttendDiscoverRepeat, self).__init__(NumStepsDistribution, False, n_steps, batch_size, cell)
+    def __init__(self, n_steps, batch_size, cell, step_success_prob, anneal_weight=1.):
+        super(AttendDiscoverRepeat, self).__init__(NumStepsDistribution, False, n_steps, batch_size, cell,
+                                                   anneal_weight)
+
         self._init_disc_step_success_prob = step_success_prob
         self._what_prior = Normal(0., 1.)
         self._where_prior = Normal(0., 1.)
@@ -106,13 +112,13 @@ class AttendDiscoverRepeat(AIRBase):
         what_prior, where_prior, num_steps_prior = self._make_priors(time_step)
 
         # KLs
-        kl_what = kl_by_sampling(what_posterior, what_prior, what)
+        kl_what = self.kl_by_sampling(what_posterior, what_prior, what)
         kl_what = tf.reduce_sum(kl_what, -1) * presence
 
-        kl_where = kl_by_sampling(where_posterior, where_prior, where)
+        kl_where = self.kl_by_sampling(where_posterior, where_prior, where)
         kl_where = tf.reduce_sum(kl_where, -1) * presence
 
-        kl_num_step = kl_by_sampling(num_steps_posterior, num_steps_prior, num_steps)
+        kl_num_step = self.kl_by_sampling(num_steps_posterior, num_steps_prior, num_steps)
         kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_num_step
 
         log_num_steps_prob = num_steps_posterior.log_prob(num_steps[..., tf.newaxis])
@@ -137,9 +143,9 @@ class AttendPropagateRepeat(AIRBase):
     _num_step_distribution_class = PoissonBinomialDistribution
 
     def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3.,
-                 constant_prior=False, infer_what=True):
+                 constant_prior=False, infer_what=True, anneal_weight=1.):
 
-        super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell)
+        super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell, anneal_weight)
         self._prior_cell = prior_cell
         self._prior_prop_logit_bias = prop_logit_bias
         self._constant_prior = constant_prior
@@ -242,10 +248,10 @@ class AttendPropagateRepeat(AIRBase):
 
         # shift and scale in accordane with the prop cell
         prior_where_loc *= self._cell._latent_scale
-        scales += self._cell._transform_estimator._scale_bias
 
-        scales = tf.nn.softplus(scales)
         prior_where_scale, prior_what_scale = tf.split(scales, [4, self.n_what], -1)
+        prior_where_scale += self._cell._transform_estimator._scale_bias
+        prior_where_scale, prior_what_scale = (tf.nn.softplus(i) for i in (prior_where_scale, prior_what_scale))
 
         prior_stats = (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)
         return prior_stats, prior_rnn_hidden_state
@@ -262,16 +268,16 @@ class AttendPropagateRepeat(AIRBase):
         what_prior, where_prior, prop_prior = self._make_priors(prior_stats)
 
         # KLs
-        kl_what = kl_by_sampling(what_posterior, what_prior, delta_what)
+        kl_what = self.kl_by_sampling(what_posterior, what_prior, delta_what)
         kl_what = tf.reduce_sum(kl_what, -1) * presence_tm1
 
         if not self._infer_what:
             kl_what *= 0.
 
-        kl_where = kl_by_sampling(where_posterior, where_prior, delta_where)
+        kl_where = self.kl_by_sampling(where_posterior, where_prior, delta_where)
         kl_where = tf.reduce_sum(kl_where, -1) * presence_tm1
 
-        kl_num_step = kl_by_sampling(prop_posterior, prop_prior, presence) * presence_tm1
+        kl_num_step = self.kl_by_sampling(prop_posterior, prop_prior, presence) * presence_tm1
         kl_num_step = tf.reduce_sum(kl_num_step, -1)
 
         kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_num_step

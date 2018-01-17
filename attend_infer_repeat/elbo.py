@@ -1,11 +1,14 @@
 import tensorflow as tf
 
 
-def kl_by_sampling(q, p, samples=None):
+def kl_by_sampling(q, p, samples=None, q_weight=1., p_weight=1.):
 
     if samples is None:
         samples = q.sample()
-    return q.log_prob(samples) - tf.cast(p.log_prob(tf.cast(samples, p.dtype)), samples.dtype)
+    qp = q.log_prob(samples)
+    pp = tf.cast(p.log_prob(tf.cast(samples, p.dtype)), samples.dtype)
+    kl = q_weight * qp - p_weight * pp
+    return kl
 
 
 def estimate_importance_weighted_elbo(batch_size, iw_samples, per_sample_elbo):

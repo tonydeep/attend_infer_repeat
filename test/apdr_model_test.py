@@ -23,6 +23,8 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     decode_prop = True
     constant_prop_prior = 10.
     propagate_disc_what = True
+    anneal_iter = 2000
+    anneal_temp = 2
 
 
 def make_modules():
@@ -32,7 +34,7 @@ def make_modules():
         input_encoder=(lambda: Encoder(5)),
         glimpse_encoder=(lambda: Encoder(7)),
         glimpse_decoder=(lambda x: Decoder(11, x)),
-        transform_estimator=(lambda: StochasticTransformParam(13)),
+        transform_estimator=(lambda: StochasticTransformParam(13, scale_bias=-3.)),
         steps_predictor=(lambda: StepsPredictor(17, steps_bias=2.))
     )
 

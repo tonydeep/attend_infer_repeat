@@ -14,8 +14,23 @@ class APDRModel(BaseAPDRModel):
     constant_prop_prior = False
     propagate_disc_what = False
 
+    anneal_prior = True
+    anneal_temp = 1
+    anneal_iter = 0
+
     def _build_model(self, transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                     **cell_kwargs):
+
+        if self.anneal_iter > 0:
+            global_step = tf.to_float(tf.train.get_or_create_global_step())
+            progress = tf.minimum(global_step / self.anneal_iter, 1.)
+            anneal_weight = 1. * progress + self.anneal_temp * (1. - progress)
+            anneal_weight = 1. / anneal_weight
+        else:
+            anneal_weight = 1.
+
+        self.anneal_weight = anneal_weight
+        phase_anneal = self.anneal_weight if self.anneal_prior else 1.
 
         self.discovery_cell = DiscoveryCell(self.img_size, self.glimpse_size, self.n_what, transition,
                                        input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
@@ -35,10 +50,11 @@ class APDRModel(BaseAPDRModel):
 
         self.propagation_cell = PropagationCell(self.img_size, self.glimpse_size, self.n_what, prop_transition,
                                            input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                                           debug=self.debug, latent_scale=.1)
+                                           debug=self.debug, latent_scale=.041)
 
         self.discover = AttendDiscoverRepeat(self.max_steps, self.effective_batch_size, self.discovery_cell,
-                                             step_success_prob=self._geom_success_prob())
+                                             step_success_prob=self._geom_success_prob(),
+                                             anneal_weight=phase_anneal)
 
         self.prior_rnn = self.prior_rnn_class(self.n_hidden)
         self.propagate = AttendPropagateRepeat(self.max_steps, self.effective_batch_size, self.propagation_cell,
@@ -46,6 +62,7 @@ class APDRModel(BaseAPDRModel):
                                                prop_logit_bias=self.prop_logit_bias,
                                                constant_prior=self.constant_prop_prior,
                                                infer_what=not self.propagate_disc_what,
+                                               anneal_weight=phase_anneal
                                                )
 
         self.time_transition = self.time_transition_class(self.n_hidden)
@@ -194,6 +211,8 @@ class APDRModel(BaseAPDRModel):
 
         likelihood_per_pixel = Normal(canvas, self.output_std).log_prob(img)
         likelihood = tf.reduce_sum(likelihood_per_pixel, (-2, -1))
+        likelihood *= self.anneal_weight
+
         elbo = likelihood - kl
 
         return likelihood, elbo
