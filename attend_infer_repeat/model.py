@@ -44,7 +44,6 @@ class APDRModel(BaseAPDRModel):
         self.propagate = AttendPropagateRepeat(self.max_steps, self.effective_batch_size, self.propagation_cell,
                                                self.prior_rnn,
                                                prop_logit_bias=self.prop_logit_bias,
-                                               latent_scale_bias=self.prop_latent_scale_bias,
                                                constant_prior=self.constant_prop_prior,
                                                infer_what=not self.propagate_disc_what,
                                                )
