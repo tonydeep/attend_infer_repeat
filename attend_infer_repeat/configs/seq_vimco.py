@@ -17,6 +17,7 @@ flags.DEFINE_float('n_anneal_steps_loss', 1e3, '')
 flags.DEFINE_float('min_glimpse_size', 0., '')
 flags.DEFINE_float('prop_logit_bias', 3., '')
 flags.DEFINE_float('prop_latent_scale_bias', 1., '')
+flags.DEFINE_float('constant_prop_prior', 0., '')
 flags.DEFINE_integer('n_iw_samples', 5, '')
 flags.DEFINE_integer('n_steps_per_image', 3, '')
 flags.DEFINE_boolean('importance_resample', False, '')
@@ -50,6 +51,7 @@ def load(img, num):
         time_transition_class = time_transition
         prior_rnn_class = prior_transition
         decode_prop = f.decode_prop
+        constant_prop_prior = f.constant_prop_prior
 
     air = APDRwithVIMCO(img,
                         max_steps=f.n_steps_per_image,

@@ -129,11 +129,13 @@ class AttendDiscoverRepeat(AIRBase):
 class AttendPropagateRepeat(AIRBase):
     _num_step_distribution_class = PoissonBinomialDistribution
 
-    def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3., latent_scale_bias=1.):
+    def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3., latent_scale_bias=1.,
+                 constant_prior=False):
         super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell)
         self._prior_cell = prior_cell
         self._prop_logit_bias = prop_logit_bias
         self._latent_scale_bias = latent_scale_bias
+        self._constant_prior = constant_prior
 
     @property
     def n_what(self):
@@ -220,11 +222,8 @@ class AttendPropagateRepeat(AIRBase):
         prop_prob_logit, stats = tf.split(stats, [self._n_steps, n_outputs - self._n_steps], -1)
         prop_prob_logit += self._prop_logit_bias
 
-        global_step = tf.train.get_or_create_global_step()
-        global_step = tf.to_float(global_step)
-        weight = tf.minimum(global_step / 10000., 1.)
-
-        prop_prob_logit = tf.stop_gradient((1. - weight) * prop_prob_logit) + weight * prop_prob_logit
+        if self._constant_prior:
+            prop_prob_logit = tf.ones_like(prop_prob_logit) * self._constant_prior
 
         locs, scales = tf.split(stats, 2, -1)
         scales += self._latent_scale_bias
