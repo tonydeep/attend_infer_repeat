@@ -108,7 +108,7 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
 class PropagateTest(ModuleTest, unittest.TestCase):
     @classmethod
     def _make_model(cls):
-        air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.modules)
+        air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent, latent_scale=.1, **cls.modules)
         cls.prior_cell = snt.GRU(3)
 
         cls.init_rnn_state = cls.prior_cell.initial_state(cls.batch_size, tf.float32, trainable=True)
@@ -128,7 +128,10 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         cls.temporal_state = cls.temporal_cell.initial_state(cls.batch_size, tf.float32, trainable=True)
         cls.temporal_conditioning, _ = cls.temporal_cell(cls.temporal_state[0], cls.temporal_state)
 
-        model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell, infer_what=False)
+        model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell,
+                                      infer_what=False,
+        )
+
         output = model(cls.img, cls.z_tm1, cls.temporal_conditioning, cls.prior_rnn_state)
         return air_cell, model, output
 
@@ -160,6 +163,13 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         print 'kl what', values.kl_what.sum(-1).mean()
         print 'kl where', values.kl_where.sum(-1).mean()
         print 'kl prop', values.kl_num_step.mean()
+
+        print 'where_loc_mean', values.where_loc.mean()
+        print 'where_scale', values.where_scale.mean()
+        print 'prior_where_loc', values.prior_stats[0].mean()
+        print 'prior_where_scale', values.prior_stats[1].mean()
+
+
 
         # KL should be the sum of three KL terms
         assert_array_almost_equal(values.kl, values.kl_what.sum(-1) + values.kl_where.sum(-1) + values.kl_num_step, 4)

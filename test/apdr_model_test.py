@@ -22,6 +22,7 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     prior_rnn_class = snt.LSTM
     decode_prop = True
     constant_prop_prior = 10.
+    propagate_disc_what = True
 
 
 def make_modules():
@@ -70,6 +71,10 @@ class APDRModelTest(unittest.TestCase):
         cls.train_step = cls.air.train_step(cls.learning_rate, nums=cls.nums)
         cls.loss = tf.reduce_mean(cls.air.iw_elbo)
         cls.loss = cls.air.nelbo / cls.air.n_timesteps
+
+        cls.kl = tf.reduce_mean(cls.air.kl_div)
+        cls.likelihood = tf.reduce_mean(cls.air.rec_loss)
+
         print 'Computed gradients'
         cls.register_time(time_start, time.clock(), 'Building model')
 
@@ -93,7 +98,7 @@ class APDRModelTest(unittest.TestCase):
 
         time_start = time.clock()
 
-        rnn_outputs, outputs, l = sess.run([self.rnn_outputs, self.outputs, self.loss], {self.imgs: xx})
+        rnn_outputs, outputs, l = sess.run([self.rnn_outputs, self.outputs, [self.loss, self.kl, self.likelihood]], {self.imgs: xx})
 
         self.register_time(time_start, time.clock(), 'Forward pass')
 
@@ -132,17 +137,17 @@ class APDRModelTest(unittest.TestCase):
 
         assert_array_equal(outputs.kl_prop_steps_per_sample + outputs.kl_disc_steps_per_sample, outputs.kl_steps_per_sample)
 
-        # print 'rnn_outputs:'
+        print 'rnn_outputs:'
         for k, v in rnn_outputs.iteritems():
             self.assertEqual(v.shape[:2], (self.n_timesteps, self.iw_samples * self.batch_size),
                              'Invalid shape of {} in rnn_output "{}"'.format(v.shape, k))
-            # print k, v.shape
+            print k, v.shape
 
-        # print
-        # print 'outputs:'
+        print
+        print 'outputs:'
         for k, v in outputs.iteritems():
             self.assertEqual(v.shape[0], self.n_timesteps, 'Invalid shape of {} in output "{}"'.format(v.shape, k))
-            # print k, v.shape
+            print k, v.shape
 
         # check that there are ids different from -1 and that at least some ids are propagated
         # print 'obj_ids'
@@ -175,10 +180,15 @@ class APDRModelTest(unittest.TestCase):
         self.assertTrue(float(fraction_no_objects) / self.batch_size, .3)  # sometimes not all objects are present
         self.assertGreater(float(fraction_propagated) / self.batch_size, .3) # check that sometimes SOME object are propagated
 
+        print 'what_loc', rnn_outputs.what_loc.mean()
+        print 'what_scale', rnn_outputs.what_scale.mean()
+        print 'where_loc', rnn_outputs.where_loc.mean()
+        print 'where_scale', rnn_outputs.where_scale.mean()
+
         # print
-        print 'loss = {}'.format(l)
-        self.assertLess(l, 100.)
-        self.assertGreater(l, 20.)
+        print 'loss = {}, kl = {}, likelihood = {}'.format(*l)
+        self.assertLess(l[0], 100.)
+        self.assertGreater(l[0], 20.)
 
     def test_backward(self):
         sess = tf.Session()
