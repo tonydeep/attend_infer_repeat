@@ -22,6 +22,7 @@ flags.DEFINE_integer('n_iw_samples', 5, '')
 flags.DEFINE_integer('n_steps_per_image', 3, '')
 flags.DEFINE_boolean('importance_resample', False, '')
 flags.DEFINE_boolean('decode_prop', False, '')
+flags.DEFINE_boolean('propagate_disc_what', False, '')
 flags.DEFINE_string('opt', '', '')
 flags.DEFINE_string('transition', 'VanillaRNN', '')
 flags.DEFINE_string('time_transition', 'GRU', '')
@@ -65,6 +66,7 @@ def load(img, num):
                         step_bias=f.step_bias,
                         iw_samples=f.n_iw_samples,
                         output_multiplier=f.output_multiplier,
+                        propagate_disc_what=f.propagate_disc_what,
     )
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)

@@ -12,6 +12,7 @@ class APDRModel(BaseAPDRModel):
     prop_latent_scale_bias = 1.
     decode_prop = False
     constant_prop_prior = False
+    propagate_disc_what = False
 
     def _build_model(self, transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                     **cell_kwargs):
@@ -44,8 +45,9 @@ class APDRModel(BaseAPDRModel):
                                                self.prior_rnn,
                                                prop_logit_bias=self.prop_logit_bias,
                                                latent_scale_bias=self.prop_latent_scale_bias,
-                                               constant_prior=self.constant_prop_prior
-        )
+                                               constant_prior=self.constant_prop_prior,
+                                               infer_what=not self.propagate_disc_what,
+                                               )
 
         self.time_transition = self.time_transition_class(self.n_hidden)
 

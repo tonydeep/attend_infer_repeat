@@ -121,8 +121,15 @@ class AttendDiscoverRepeat(AIRBase):
         return kl, kl_where, kl_what, kl_num_step, num_steps_prob, log_num_steps_prob
 
     def _make_priors(self, time_step):
-        step_success_prob = 1. - self._init_disc_step_success_prob / (tf.cast(time_step, tf.float64) + 1.)
+        # step_success_prob = 1. - self._init_disc_step_success_prob / (tf.cast(time_step, tf.float64) + 1.)
+        # num_steps_prior = Geometric(probs=step_success_prob)
+
+        init_prob = self._init_disc_step_success_prob
+        first = tf.cast(tf.greater(time_step, 0), tf.float64)
+        init_prob = init_prob * first + 1e-5 * (1. - first)
+        step_success_prob = 1. - init_prob
         num_steps_prior = Geometric(probs=step_success_prob)
+
         return self._what_prior, self._where_prior, num_steps_prior
 
 
@@ -130,12 +137,13 @@ class AttendPropagateRepeat(AIRBase):
     _num_step_distribution_class = PoissonBinomialDistribution
 
     def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3., latent_scale_bias=1.,
-                 constant_prior=False):
+                 constant_prior=False, infer_what=True):
         super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell)
         self._prior_cell = prior_cell
         self._prop_logit_bias = prop_logit_bias
         self._latent_scale_bias = latent_scale_bias
         self._constant_prior = constant_prior
+        self._infer_what = infer_what
 
     @property
     def n_what(self):
@@ -200,7 +208,10 @@ class AttendPropagateRepeat(AIRBase):
         hidden_outputs, inner_hidden_state = self._unroll_timestep(unstacked_z_tm1, initial_state)
 
         delta_what, delta_where = hidden_outputs[0], hidden_outputs[3]
-        hidden_outputs[0] = z_tm1[0] + delta_what
+        hidden_outputs[0] = z_tm1[0]
+        if self._infer_what:
+            hidden_outputs[0] += delta_what
+
         hidden_outputs[3] = z_tm1[1] + delta_where
 
         presence = BaseAPDRCell.extract_latents(hidden_outputs, key='pres')
@@ -248,6 +259,9 @@ class AttendPropagateRepeat(AIRBase):
         # KLs
         kl_what = kl_by_sampling(what_posterior, what_prior, delta_what)
         kl_what = tf.reduce_sum(kl_what, -1) * presence_tm1
+
+        if not self._infer_what:
+            kl_what *= 0.
 
         kl_where = kl_by_sampling(where_posterior, where_prior, delta_where)
         kl_where = tf.reduce_sum(kl_where, -1) * presence_tm1

@@ -21,6 +21,7 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     time_transition_class = snt.GRU
     prior_rnn_class = snt.LSTM
     decode_prop = True
+    constant_prop_prior = 10.
 
 
 def make_modules():

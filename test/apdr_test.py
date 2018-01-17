@@ -43,6 +43,7 @@ class ModuleTest(object):
         cls.sess.run(tf.global_variables_initializer())
 
         print_trainable_variables(cls.__name__, vars_before)
+        print cls.__name__
 
     def test_fields(self):
         self.assertEqual(self.model._n_steps, self.n_steps)
@@ -127,7 +128,7 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         cls.temporal_state = cls.temporal_cell.initial_state(cls.batch_size, tf.float32, trainable=True)
         cls.temporal_conditioning, _ = cls.temporal_cell(cls.temporal_state[0], cls.temporal_state)
 
-        model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell)
+        model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell, infer_what=False)
         output = model(cls.img, cls.z_tm1, cls.temporal_conditioning, cls.prior_rnn_state)
         return air_cell, model, output
 
@@ -154,6 +155,7 @@ class PropagateTest(ModuleTest, unittest.TestCase):
             self.assertFalse(flatten_check(v, np.isnan), 'NaNs in {}'.format(k))
             self.assertFalse(flatten_check(v, np.isinf), 'infs in {}'.format(k))
 
+        print 'Propagate Test'
         print 'kl', values.kl.mean()
         print 'kl what', values.kl_what.sum(-1).mean()
         print 'kl where', values.kl_where.sum(-1).mean()
@@ -293,7 +295,7 @@ class APDRTest(unittest.TestCase):
         air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.prop_modules)
         cls.prior_cell = snt.GRU(cls.n_latent)
 
-        model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell)
+        model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell, infer_what=False)
         return air_cell, model
 
     def test_fields(self):
