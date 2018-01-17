@@ -16,7 +16,6 @@ flags.DEFINE_float('final_step_success_prob', 1e-5, '')
 flags.DEFINE_float('n_anneal_steps_loss', 1e3, '')
 flags.DEFINE_float('min_glimpse_size', 0., '')
 flags.DEFINE_float('prop_logit_bias', 3., '')
-flags.DEFINE_float('prop_latent_scale_bias', 1., '')
 flags.DEFINE_float('constant_prop_prior', 0., '')
 flags.DEFINE_integer('n_iw_samples', 5, '')
 flags.DEFINE_integer('n_steps_per_image', 3, '')
@@ -53,6 +52,7 @@ def load(img, num):
         prior_rnn_class = prior_transition
         decode_prop = f.decode_prop
         constant_prop_prior = f.constant_prop_prior
+        propagate_disc_what = f.propagate_disc_what
 
     air = APDRwithVIMCO(img,
                         max_steps=f.n_steps_per_image,
@@ -66,7 +66,6 @@ def load(img, num):
                         step_bias=f.step_bias,
                         iw_samples=f.n_iw_samples,
                         output_multiplier=f.output_multiplier,
-                        propagate_disc_what=f.propagate_disc_what,
     )
 
     kwargs = dict(learning_rate=f.learning_rate, nums=num)

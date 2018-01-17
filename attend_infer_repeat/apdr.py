@@ -125,7 +125,7 @@ class AttendDiscoverRepeat(AIRBase):
         # num_steps_prior = Geometric(probs=step_success_prob)
 
         init_prob = self._init_disc_step_success_prob
-        first = tf.cast(tf.greater(time_step, 0), tf.float64)
+        first = tf.cast(tf.equal(time_step, 0), tf.float64)
         init_prob = init_prob * first + 1e-5 * (1. - first)
         step_success_prob = 1. - init_prob
         num_steps_prior = Geometric(probs=step_success_prob)
@@ -136,12 +136,12 @@ class AttendDiscoverRepeat(AIRBase):
 class AttendPropagateRepeat(AIRBase):
     _num_step_distribution_class = PoissonBinomialDistribution
 
-    def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3., latent_scale_bias=1.,
+    def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3.,
                  constant_prior=False, infer_what=True):
+
         super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell)
         self._prior_cell = prior_cell
-        self._prop_logit_bias = prop_logit_bias
-        self._latent_scale_bias = latent_scale_bias
+        self._prior_prop_logit_bias = prop_logit_bias
         self._constant_prior = constant_prior
         self._infer_what = infer_what
 
@@ -231,16 +231,21 @@ class AttendPropagateRepeat(AIRBase):
         stats = snt.BatchApply(snt.Linear(n_outputs))(outputs)
 
         prop_prob_logit, stats = tf.split(stats, [self._n_steps, n_outputs - self._n_steps], -1)
-        prop_prob_logit += self._prop_logit_bias
+        prop_prob_logit += self._prior_prop_logit_bias
 
         if self._constant_prior:
             prop_prob_logit = tf.ones_like(prop_prob_logit) * self._constant_prior
 
         locs, scales = tf.split(stats, 2, -1)
-        scales += self._latent_scale_bias
 
         prior_where_loc, prior_what_loc = tf.split(locs, [4, self.n_what], -1)
-        prior_where_scale, prior_what_scale = tf.split(tf.nn.softplus(scales), [4, self.n_what], -1)
+
+        # shift and scale in accordane with the prop cell
+        prior_where_loc *= self._cell._latent_scale
+        scales += self._cell._transform_estimator._scale_bias
+
+        scales = tf.nn.softplus(scales)
+        prior_where_scale, prior_what_scale = tf.split(scales, [4, self.n_what], -1)
 
         prior_stats = (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)
         return prior_stats, prior_rnn_hidden_state

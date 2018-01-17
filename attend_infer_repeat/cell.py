@@ -1,7 +1,7 @@
 import numpy as  np
 import sonnet as snt
 import tensorflow as tf
-from tensorflow.contrib.distributions import Bernoulli, NormalWithSoftplusScale
+from tensorflow.contrib.distributions import Bernoulli, Normal, NormalWithSoftplusScale
 from tensorflow.python.util import nest
 
 from modules import SpatialTransformer, ParametrisedGaussian
@@ -261,10 +261,10 @@ class PropagationCell(BaseAPDRCell):
     def _compute_where(self, inpt, hidden_output):
         where_tm1 = inpt[1]
 
-        inpt = tf.concat((hidden_output, where_tm1), -1) * self._latent_scale
+        inpt = tf.concat((hidden_output, where_tm1), -1)
 
         loc, scale = self._transform_estimator(inpt)
-
+        loc *= self._latent_scale
         where_distrib = NormalWithSoftplusScale(loc, scale,
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
 
