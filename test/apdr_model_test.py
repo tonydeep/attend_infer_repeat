@@ -20,6 +20,7 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     transition_class = snt.VanillaRNN
     time_transition_class = snt.GRU
     prior_rnn_class = snt.LSTM
+    decode_prop = True
 
 
 def make_modules():
@@ -190,11 +191,7 @@ class APDRModelTest(unittest.TestCase):
 
         sess.run(self.train_step, {self.imgs: xx})
         self.register_time(time_start, time.clock(), 'Backward pass')
-
         print 'Done'
-
-        for v in tf.trainable_variables():
-            print v.name, v.shape.as_list()
 
     def test_learning_signal_shape(self):
         learning_signal_shape = self.air.num_steps_learning_signal.shape.as_list()

@@ -10,6 +10,7 @@ from apdr import AttendPropagateRepeat, AttendDiscoverRepeat, APDR
 class APDRModel(BaseAPDRModel):
     prop_logit_bias = 3.
     prop_latent_scale_bias = 1.
+    decode_prop = False
 
     def _build_model(self, transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                     **cell_kwargs):
@@ -45,8 +46,10 @@ class APDRModel(BaseAPDRModel):
         )
 
         self.time_transition = self.time_transition_class(self.n_hidden)
+
+        decoder = self.decoder if self.decode_prop else None
         self.apdr = APDR(self.max_steps, self.effective_batch_size, self.propagate, self.discover,
-                         self.time_transition, )
+                         self.time_transition, decoder)
 
     def _initial_state(self):
         what = tf.zeros((1, 1, self.n_what))

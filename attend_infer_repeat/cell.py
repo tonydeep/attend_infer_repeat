@@ -101,13 +101,13 @@ class BaseAPDRCell(snt.RNNCore):
             raise ValueError("Either `key' or `skip' have to be None, but both are not!")
 
         if skip is not None:
-            key = (k for k in DiscoveryCell._latent_name_to_idx.keys() if k not in nest.flatten(skip))
-            latent_idx = sorted((DiscoveryCell._latent_name_to_idx[k] for k in key))
+            key = (k for k in BaseAPDRCell._latent_name_to_idx.keys() if k not in nest.flatten(skip))
+            latent_idx = sorted((BaseAPDRCell._latent_name_to_idx[k] for k in key))
 
         elif key is None:
-            latent_idx = sorted(DiscoveryCell._latent_name_to_idx.values())
+            latent_idx = sorted(BaseAPDRCell._latent_name_to_idx.values())
         else:
-            latent_idx = (DiscoveryCell._latent_name_to_idx[k] for k in nest.flatten(key))
+            latent_idx = (BaseAPDRCell._latent_name_to_idx[k] for k in nest.flatten(key))
 
         if isinstance(hidden_outputs[0], tf.Tensor):
             latents = [hidden_outputs[i] for i in latent_idx]

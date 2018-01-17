@@ -220,6 +220,12 @@ class AttendPropagateRepeat(AIRBase):
         prop_prob_logit, stats = tf.split(stats, [self._n_steps, n_outputs - self._n_steps], -1)
         prop_prob_logit += self._prop_logit_bias
 
+        global_step = tf.train.get_or_create_global_step()
+        global_step = tf.to_float(global_step)
+        weight = tf.minimum(global_step / 10000., 1.)
+
+        prop_prob_logit = tf.stop_gradient((1. - weight) * prop_prob_logit) + weight * prop_prob_logit
+
         locs, scales = tf.split(stats, 2, -1)
         scales += self._latent_scale_bias
 
@@ -267,13 +273,14 @@ class AttendPropagateRepeat(AIRBase):
 
 
 class APDR(snt.AbstractModule):
-    def __init__(self, n_steps, batch_size, propagate, discover, time_cell):
+    def __init__(self, n_steps, batch_size, propagate, discover, time_cell, decoder=None):
         super(APDR, self).__init__()
         self._n_steps = n_steps
         self._batch_size = batch_size
         self._propagate = propagate
         self._discover = discover
         self._time_cell = time_cell
+        self._decoder = decoder
 
         with self._enter_variable_scope():
             n_units = nest.flatten(self._time_cell.state_size)[0]
@@ -334,9 +341,14 @@ class APDR(snt.AbstractModule):
         latent_encoding = self._encode_latents(*z_tm1[:-1])
         temporal_conditioning, temporal_hidden_state = self._time_cell(latent_encoding, temporal_hidden_state)
 
-        prop_output = self._propagate(img, z_tm1, temporal_hidden_state, prop_prior_state)
-
+        prop_output = self._propagate(img, z_tm1, temporal_conditioning, prop_prior_state)
         conditioning_from_prop = self._encode_latents(prop_output.what, prop_output.where, prop_output.presence)
+
+        discovery_inpt_img = img
+        if self._decoder is not None:
+            prop_img, _ = self._decoder(prop_output.what, prop_output.where, prop_output.presence)
+            discovery_inpt_img -= prop_img
+
         disc_output = self._discover(img, prop_output.num_steps, conditioning_from_prop, time_step)
 
         return prop_output, disc_output, temporal_hidden_state

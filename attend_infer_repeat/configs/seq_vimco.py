@@ -20,6 +20,7 @@ flags.DEFINE_float('prop_latent_scale_bias', 1., '')
 flags.DEFINE_integer('n_iw_samples', 5, '')
 flags.DEFINE_integer('n_steps_per_image', 3, '')
 flags.DEFINE_boolean('importance_resample', False, '')
+flags.DEFINE_boolean('decode_prop', False, '')
 flags.DEFINE_string('opt', '', '')
 flags.DEFINE_string('transition', 'VanillaRNN', '')
 flags.DEFINE_string('time_transition', 'GRU', '')
@@ -48,6 +49,7 @@ def load(img, num):
         transition_class = transition
         time_transition_class = time_transition
         prior_rnn_class = prior_transition
+        decode_prop = f.decode_prop
 
     air = APDRwithVIMCO(img,
                         max_steps=f.n_steps_per_image,

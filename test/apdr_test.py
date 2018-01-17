@@ -230,7 +230,12 @@ class APDRTest(unittest.TestCase):
         cls.temporal_state = cls.temporal_cell.initial_state(cls.batch_size, tf.float32, trainable=True)
         cls.temporal_conditioning, _ = cls.temporal_cell(cls.temporal_state[0], cls.temporal_state)
 
-        cls.apdr = APDR(cls.n_steps, cls.batch_size, cls.prop_model, cls.disc_model, cls.temporal_cell)
+        glimpse_decoder = lambda size: Decoder(n_hidden=5, output_size=size)
+        cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder)
+
+        cls.apdr = APDR(cls.n_steps, cls.batch_size, cls.prop_model, cls.disc_model,
+                        cls.temporal_cell, cls.decoder)
+
         cls.init_prior_rnn_state = cls.apdr.prior_init_state()
         cls.prop_prior_rnn_state = tf.tile(tf.expand_dims(cls.init_prior_rnn_state, -2), (1, cls.n_steps, 1))
 
