@@ -13,6 +13,7 @@ class APDRModel(BaseAPDRModel):
     decode_prop = False
     constant_prop_prior = False
     propagate_disc_what = False
+    relation_embed = False
 
     anneal_prior = True
     anneal_temp = 1
@@ -48,9 +49,13 @@ class APDRModel(BaseAPDRModel):
         input_encoder = lambda: self.discovery_cell._input_encoder
         glimpse_encoder = lambda: self.discovery_cell._glimpse_encoder
 
+        where_update_scale = tf.get_variable('where_update_scale', shape=[],
+                                             initializer=tf.constant_initializer(-5.), trainable=True)
+        where_update_scale = tf.nn.sigmoid(where_update_scale)
+
         self.propagation_cell = PropagationCell(self.img_size, self.glimpse_size, self.n_what, prop_transition,
                                            input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                                           debug=self.debug, latent_scale=.041)
+                                           debug=self.debug, latent_scale=where_update_scale)
 
         self.discover = AttendDiscoverRepeat(self.max_steps, self.effective_batch_size, self.discovery_cell,
                                              step_success_prob=self._geom_success_prob(),
@@ -69,7 +74,7 @@ class APDRModel(BaseAPDRModel):
 
         decoder = self.decoder if self.decode_prop else None
         self.apdr = APDR(self.max_steps, self.effective_batch_size, self.propagate, self.discover,
-                         self.time_transition, decoder)
+                         self.time_transition, decoder, relation_embedding=self.relation_embed)
 
     def _initial_state(self):
         what = tf.zeros((1, 1, self.n_what))

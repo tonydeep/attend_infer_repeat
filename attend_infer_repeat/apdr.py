@@ -1,4 +1,5 @@
 import collections
+import itertools
 
 import sonnet as snt
 import tensorflow as tf
@@ -297,7 +298,7 @@ class AttendPropagateRepeat(AIRBase):
 
 
 class APDR(snt.AbstractModule):
-    def __init__(self, n_steps, batch_size, propagate, discover, time_cell, decoder=None):
+    def __init__(self, n_steps, batch_size, propagate, discover, time_cell, decoder=None, relation_embedding=False):
         super(APDR, self).__init__()
         self._n_steps = n_steps
         self._batch_size = batch_size
@@ -305,6 +306,7 @@ class APDR(snt.AbstractModule):
         self._discover = discover
         self._time_cell = time_cell
         self._decoder = decoder
+        self._relation_embedding = relation_embedding
 
         with self._enter_variable_scope():
             n_units = nest.flatten(self._time_cell.state_size)[0]
@@ -429,5 +431,17 @@ class APDR(snt.AbstractModule):
 
     def _encode_latents(self, what, where, presence):
         inpts = tf.concat((what, where), -1)
+
+        if self._relation_embedding:
+            def combinations(tensor):
+                tensor = tf.split(tensor, self._n_steps, -2)
+                tensor = list(itertools.combinations(tensor, 2))
+                tensor = [tf.concat(t, -1) for t in tensor]
+                tensor = tf.concat(tensor, -2)
+                return tensor
+
+            inpts = combinations(inpts)
+            presence = tf.reduce_prod(combinations(presence), -1, keep_dims=True)
+
         features = snt.BatchApply(self._latent_encoder)(inpts) * presence
         return tf.reduce_sum(features, -2)

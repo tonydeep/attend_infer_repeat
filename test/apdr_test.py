@@ -246,7 +246,7 @@ class APDRTest(unittest.TestCase):
         cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder)
 
         cls.apdr = APDR(cls.n_steps, cls.batch_size, cls.prop_model, cls.disc_model,
-                        cls.temporal_cell, cls.decoder)
+                        cls.temporal_cell, cls.decoder, relation_embedding=True)
 
         cls.init_prior_rnn_state = cls.apdr.prior_init_state()
         cls.prop_prior_rnn_state = tf.tile(tf.expand_dims(cls.init_prior_rnn_state, -2), (1, cls.n_steps, 1))

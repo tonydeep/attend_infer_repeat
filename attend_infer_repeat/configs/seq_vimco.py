@@ -32,6 +32,8 @@ flags.DEFINE_boolean('anneal_prior', True, '')
 flags.DEFINE_float('anneal_temp', 1., '')
 flags.DEFINE_integer('anneal_iter', 0, '')
 
+flags.DEFINE_boolean('relation_embed', False, '')
+
 
 def load(img, num):
 
@@ -60,6 +62,7 @@ def load(img, num):
         anneal_prior = f.anneal_prior
         anneal_iter = f.anneal_iter
         anneal_temp = f.anneal_temp
+        relation_embed = f.relation_embed
 
     air = APDRwithVIMCO(img,
                         max_steps=f.n_steps_per_image,

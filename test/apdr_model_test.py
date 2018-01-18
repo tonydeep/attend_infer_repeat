@@ -23,8 +23,8 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     decode_prop = True
     constant_prop_prior = 10.
     propagate_disc_what = True
-    anneal_iter = 2000
-    anneal_temp = 2
+    # anneal_iter = 2000
+    # anneal_temp = 2
 
 
 def make_modules():
