@@ -14,6 +14,7 @@ class APDRModel(BaseAPDRModel):
     constant_prop_prior = False
     propagate_disc_what = False
     relation_embed = False
+    internal_decode = False
 
     anneal_prior = True
     anneal_temp = 1
@@ -33,9 +34,11 @@ class APDRModel(BaseAPDRModel):
         self.anneal_weight = anneal_weight
         phase_anneal = self.anneal_weight if self.anneal_prior else 1.
 
+        cell_decoder = self.decoder if self.internal_decode else None
         self.discovery_cell = DiscoveryCell(self.img_size, self.glimpse_size, self.n_what, transition,
                                        input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                                        debug=self.debug,
+                                       decoder=cell_decoder,
                                        **cell_kwargs)
 
         self.n_hidden = self.discovery_cell._n_hidden
@@ -55,7 +58,9 @@ class APDRModel(BaseAPDRModel):
 
         self.propagation_cell = PropagationCell(self.img_size, self.glimpse_size, self.n_what, prop_transition,
                                            input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                                           debug=self.debug, latent_scale=where_update_scale)
+                                           latent_scale=where_update_scale,
+                                           decoder=cell_decoder,
+                                           debug=self.debug)
 
         self.discover = AttendDiscoverRepeat(self.max_steps, self.effective_batch_size, self.discovery_cell,
                                              step_success_prob=self._geom_success_prob(),

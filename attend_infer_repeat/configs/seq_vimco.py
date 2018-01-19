@@ -23,6 +23,9 @@ flags.DEFINE_integer('n_steps_per_image', 3, '')
 flags.DEFINE_boolean('importance_resample', False, '')
 flags.DEFINE_boolean('decode_prop', False, '')
 flags.DEFINE_boolean('propagate_disc_what', False, '')
+flags.DEFINE_boolean('internal_decode', False, '')
+
+
 flags.DEFINE_string('opt', '', '')
 flags.DEFINE_string('transition', 'VanillaRNN', '')
 flags.DEFINE_string('time_transition', 'GRU', '')
@@ -63,6 +66,7 @@ def load(img, num):
         anneal_iter = f.anneal_iter
         anneal_temp = f.anneal_temp
         relation_embed = f.relation_embed
+        internal_decode = f.internal_decode
 
     air = APDRwithVIMCO(img,
                         max_steps=f.n_steps_per_image,

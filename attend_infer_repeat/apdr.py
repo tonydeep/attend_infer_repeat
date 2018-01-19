@@ -209,9 +209,7 @@ class AttendPropagateRepeat(AIRBase):
         step_initial_state = self._temporal_to_step_hidden_state(temporal_hidden_state)
         initial_state = self._cell.initial_state(img, hidden_state=step_initial_state)
 
-        unstacked_z_tm1 = zip(*[[zz[:, 0] for zz in tf.split(z, self._n_steps, -2)] for z in z_tm1])
-        unstacked_z_tm1 = [list(z) for z in unstacked_z_tm1]
-
+        unstacked_z_tm1 = zip(*[tf.unstack(z, axis=-2) for z in z_tm1])
         hidden_outputs, inner_hidden_state = self._unroll_timestep(unstacked_z_tm1, initial_state)
 
         delta_what, delta_where = hidden_outputs[0], hidden_outputs[3]
@@ -375,7 +373,7 @@ class APDR(snt.AbstractModule):
             prop_img, _ = self._decoder(prop_output.what, prop_output.where, prop_output.presence)
             discovery_inpt_img -= prop_img
 
-        disc_output = self._discover(img, prop_output.num_steps, conditioning_from_prop, time_step)
+        disc_output = self._discover(discovery_inpt_img, prop_output.num_steps, conditioning_from_prop, time_step)
 
         return prop_output, disc_output, temporal_hidden_state
 
@@ -435,7 +433,7 @@ class APDR(snt.AbstractModule):
         if self._relation_embedding:
             def combinations(tensor):
                 tensor = tf.split(tensor, self._n_steps, -2)
-                tensor = list(itertools.combinations(tensor, 2))
+                tensor = itertools.combinations(tensor, 2)
                 tensor = [tf.concat(t, -1) for t in tensor]
                 tensor = tf.concat(tensor, -2)
                 return tensor

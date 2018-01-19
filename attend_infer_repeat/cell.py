@@ -24,8 +24,8 @@ class BaseAPDRCell(snt.RNNCore):
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                 condition_on_latents=True,
-                 condition_on_inpt=True, debug=False):
+                 decoder=None,
+                 debug=False):
         """Creates the cell
 
         :param img_size: int tuple, size of the image
@@ -47,8 +47,8 @@ class BaseAPDRCell(snt.RNNCore):
         self._transition = transition
         self._n_hidden = int(self._transition.output_size[0])
 
-        self._condition_on_latents = condition_on_latents
-        self._condition_on_inpt = condition_on_inpt
+        self._decoder = decoder
+
         self._debug = debug
 
         with self._enter_variable_scope():
@@ -141,10 +141,10 @@ class BaseAPDRCell(snt.RNNCore):
     def _prepare_rnn_inputs(self, inpt, img, what, where, presence):
         transition_inpt = self._input_encoder(img)
         transition_inpt = [transition_inpt]
-        if inpt is not None and self._condition_on_inpt:
+        if inpt is not None:
             transition_inpt += nest.flatten(inpt)
 
-        if self._condition_on_latents:
+        if self._decoder is not None:
             transition_inpt += [what, where, presence]
 
         if len(transition_inpt) > 1:
@@ -179,7 +179,10 @@ class BaseAPDRCell(snt.RNNCore):
 
         with tf.variable_scope('rnn_inpt'):
             rnn_inpt = self._prepare_rnn_inputs(inpt, img, what_code, where_code, presence)
-            hidden_output, hidden_state = self._transition(rnn_inpt, hidden_state)
+            if self._decoder is None:
+                hidden_output, hidden_state = self._transition(rnn_inpt, hidden_state)
+            else:
+                hidden_output = MLP([self._n_hidden]*2, name='transition_MLP')(rnn_inpt)
 
         with tf.variable_scope('where'):
             where_code, where_loc, where_scale = self._compute_where(inpt, hidden_output)
@@ -190,6 +193,11 @@ class BaseAPDRCell(snt.RNNCore):
 
         with tf.variable_scope('what'):
             what_code, what_loc, what_scale = self._compute_what(inpt, img, where_code)
+
+        if self._decoder is not None:
+            params = [tf.expand_dims(i, 1) for i in (what_code, where_code, presence)]
+            reconstruction, _ = self._decoder(*params)
+            img_flat -= tf.reshape(reconstruction, tf.shape(img_flat))
 
         output = [what_code, what_loc, what_scale, where_code, where_loc, where_scale,
                   presence_prob, presence, presence_logit]
@@ -232,11 +240,11 @@ class PropagationCell(BaseAPDRCell):
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
-                 latent_scale=1.0, debug=False):
+                 latent_scale=1.0, decoder=None, debug=False):
 
         super(PropagationCell, self).__init__(img_size, crop_size, n_what, transition, input_encoder,
                                               glimpse_encoder, transform_estimator, steps_predictor,
-                                              debug=debug)
+                                              decoder=decoder, debug=debug)
 
         with self._enter_variable_scope():
             self._what_transform = MLP([self._n_hidden] * 2)

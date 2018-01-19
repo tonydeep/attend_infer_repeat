@@ -22,9 +22,10 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     prior_rnn_class = snt.LSTM
     decode_prop = True
     constant_prop_prior = 10.
-    propagate_disc_what = True
+    # propagate_disc_what = True
     # anneal_iter = 2000
     # anneal_temp = 2
+    internal_decode = True
 
 
 def make_modules():
@@ -213,7 +214,7 @@ class APDRModelTest(unittest.TestCase):
     def test_num_vars(self):
         """This is to ensure test failure whenever number of variables increases: it forces me to think why it happened
         as I need to change this number explicitly to make tests run agian."""
-        self.assertEqual(len(self.model_vars), 63)
+        self.assertEqual(len(self.model_vars), 64)
 
 
 

@@ -37,6 +37,10 @@ class ModuleTest(object):
         cls.img = tf.placeholder(tf.float32, (cls.batch_size,) + cls.img_size, name='inpt')
 
         cls.modules = make_modules()
+
+        glimpse_decoder = lambda size: Decoder(n_hidden=5, output_size=size)
+        cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder)
+
         cls.air_cell, cls.model, cls.output = cls._make_model()
 
         cls.sess = tf.Session()
@@ -54,7 +58,9 @@ class ModuleTest(object):
 class DiscoverTest(ModuleTest, unittest.TestCase):
     @classmethod
     def _make_model(cls):
-        air_cell = DiscoveryCell(cls.img_size, cls.crop_size, cls.n_latent, condition_on_inpt=False, **cls.modules)
+        air_cell = DiscoveryCell(cls.img_size, cls.crop_size, cls.n_latent,
+                                 decoder=cls.decoder,
+                                 **cls.modules)
 
         # cls.num_present_objects = tf.zeros((cls.batch_size,), name='num_present_objects')
         cls.num_present_objects = tf.to_float(tf.random_uniform((cls.batch_size,), 0, cls.n_steps + 1,
@@ -108,7 +114,8 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
 class PropagateTest(ModuleTest, unittest.TestCase):
     @classmethod
     def _make_model(cls):
-        air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent, latent_scale=.1, **cls.modules)
+        air_cell = PropagationCell(cls.img_size, cls.crop_size, cls.n_latent,
+                                   latent_scale=.1, decoder=cls.decoder, **cls.modules)
         cls.prior_cell = snt.GRU(3)
 
         cls.init_rnn_state = cls.prior_cell.initial_state(cls.batch_size, tf.float32, trainable=True)
@@ -289,7 +296,7 @@ class APDRTest(unittest.TestCase):
     @classmethod
     def _make_discovery_model(cls):
         cls.disc_modules = make_modules()
-        air_cell = DiscoveryCell(cls.img_size, cls.crop_size, cls.n_latent, condition_on_inpt=False, **cls.disc_modules)
+        air_cell = DiscoveryCell(cls.img_size, cls.crop_size, cls.n_latent, **cls.disc_modules)
 
         # cls.num_present_objects = tf.zeros((cls.batch_size,), name='num_present_objects')
         cls.num_present_objects = tf.to_float(tf.random_uniform((cls.batch_size,), 0, cls.n_steps + 1,
