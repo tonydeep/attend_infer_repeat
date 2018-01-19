@@ -24,7 +24,7 @@ flags.DEFINE_boolean('importance_resample', False, '')
 flags.DEFINE_boolean('decode_prop', False, '')
 flags.DEFINE_boolean('propagate_disc_what', False, '')
 flags.DEFINE_boolean('internal_decode', False, '')
-flags.DEFINE_boolean('discover_only_t0', discover_only_t0, '')
+flags.DEFINE_boolean('discover_only_t0', False, '')
 
 
 flags.DEFINE_string('opt', '', '')
