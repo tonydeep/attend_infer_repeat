@@ -26,6 +26,7 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     # anneal_iter = 2000
     # anneal_temp = 2
     internal_decode = True
+    discover_only_t0 = True
 
 
 def make_modules():

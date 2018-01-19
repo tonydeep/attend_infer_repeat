@@ -24,6 +24,7 @@ flags.DEFINE_boolean('importance_resample', False, '')
 flags.DEFINE_boolean('decode_prop', False, '')
 flags.DEFINE_boolean('propagate_disc_what', False, '')
 flags.DEFINE_boolean('internal_decode', False, '')
+flags.DEFINE_boolean('discover_only_t0', discover_only_t0, '')
 
 
 flags.DEFINE_string('opt', '', '')
@@ -67,6 +68,7 @@ def load(img, num):
         anneal_temp = f.anneal_temp
         relation_embed = f.relation_embed
         internal_decode = f.internal_decode
+        discover_only_t0 = f.discover_only_t0
 
     air = APDRwithVIMCO(img,
                         max_steps=f.n_steps_per_image,

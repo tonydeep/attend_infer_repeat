@@ -20,6 +20,8 @@ class APDRModel(BaseAPDRModel):
     anneal_temp = 1
     anneal_iter = 0
 
+    discover_only_t0 = False
+
     def _build_model(self, transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
                     **cell_kwargs):
 
@@ -64,7 +66,8 @@ class APDRModel(BaseAPDRModel):
 
         self.discover = AttendDiscoverRepeat(self.max_steps, self.effective_batch_size, self.discovery_cell,
                                              step_success_prob=self._geom_success_prob(),
-                                             anneal_weight=phase_anneal)
+                                             anneal_weight=phase_anneal,
+                                             discover_only_t0=self.discover_only_t0)
 
         self.prior_rnn = self.prior_rnn_class(self.n_hidden)
         self.propagate = AttendPropagateRepeat(self.max_steps, self.effective_batch_size, self.propagation_cell,

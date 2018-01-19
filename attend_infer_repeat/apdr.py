@@ -60,16 +60,17 @@ class AIRBase(snt.AbstractModule):
 
 
 class AttendDiscoverRepeat(AIRBase):
-    def __init__(self, n_steps, batch_size, cell, step_success_prob, anneal_weight=1.):
+    def __init__(self, n_steps, batch_size, cell, step_success_prob, anneal_weight=1., discover_only_t0=False):
         super(AttendDiscoverRepeat, self).__init__(NumStepsDistribution, False, n_steps, batch_size, cell,
                                                    anneal_weight)
 
         self._init_disc_step_success_prob = step_success_prob
         self._what_prior = Normal(0., 1.)
         self._where_prior = Normal(0., 1.)
+        self._discover_only_t0 = discover_only_t0
 
     def _build(self, img, n_present_obj, conditioning=None, time_step=0):
-        hidden_outputs, num_steps = self._discover(img, n_present_obj, conditioning)
+        hidden_outputs, num_steps = self._discover(img, n_present_obj, conditioning, time_step)
         kl, kl_where, kl_what, kl_num_step, num_steps_prob, log_num_steps_prob\
             = self._estimate_kl(hidden_outputs, num_steps, time_step)
 
@@ -87,8 +88,12 @@ class AttendDiscoverRepeat(AIRBase):
 
         return outputs
 
-    def _discover(self, img, n_present_obj, conditioning):
+    def _discover(self, img, n_present_obj, conditioning, time_step):
         max_disc_steps = self._n_steps - n_present_obj
+        if self._discover_only_t0:
+            first = tf.cast(tf.equal(time_step, 0), max_disc_steps.dtype)
+            max_disc_steps *= first
+
         initial_state = self._cell.initial_state(img)
 
         if conditioning is None:
