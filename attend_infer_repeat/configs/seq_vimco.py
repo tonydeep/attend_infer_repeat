@@ -38,6 +38,9 @@ flags.DEFINE_integer('anneal_iter', 0, '')
 
 flags.DEFINE_boolean('relation_embed', False, '')
 
+flags.DEFINE_float('output_std', .3)
+flags.DEFINE_boolean('learnable_output_std', False, '')
+
 
 def load(img, num):
 
@@ -52,6 +55,9 @@ def load(img, num):
     prior_transition = maybe_getattr(snt, f.prior_transition)
 
     class APDRwithVIMCO(APDRonMNIST):
+        output_std = f.output_std
+        learnable_output_std = f.learnable_output_std
+
         importance_resample = f.importance_resample
         init_step_success_prob = f.init_step_success_prob
         final_step_success_prob = f.final_step_success_prob

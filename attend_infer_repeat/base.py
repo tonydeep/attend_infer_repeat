@@ -23,11 +23,13 @@ class BaseAPDRModel(object):
 
     time_transition_class = None
     prior_rnn_class = None
+    output_std = 1.
+    learnable_output_std = False
 
     def __init__(self, obs, max_steps, glimpse_size,
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
                  steps_predictor,
-                 output_std=1., output_multiplier=1., iw_samples=1,
+                 output_multiplier=1., iw_samples=1,
                  debug=False, **cell_kwargs):
         """Creates the model.
 
@@ -51,7 +53,6 @@ class BaseAPDRModel(object):
         self.max_steps = max_steps
         self.glimpse_size = glimpse_size
         self.n_what = n_what
-        self.output_std = output_std
         self.output_multiplier = output_multiplier
         self.iw_samples = iw_samples
 
@@ -85,12 +86,18 @@ class BaseAPDRModel(object):
     def _build(self, glimpse_decoder, *cell_args, **cell_kwargs):
         """Build the model. See __init__ for argument description"""
 
+        if self.learnable_output_std:
+            sqrt = self.output_std ** .5
+            self.output_std_sqrt = tf.get_variable('output_std_sqrt', shape=[], dtype=tf.float32,
+                                                    initializer=tf.constant_initializer(sqrt))
+            self.output_std = tf.pow(self.output_std_variable, 2.)
+
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
         self._build_model(*cell_args, **cell_kwargs)
 
         res = self._time_loop()
-        # self.final_state = res[2]
-        # self.cumulative_imp_weights = res[4]
+        self.final_state = res[2]
+        self.cumulative_imp_weights = res[4]
         tas = res[self.non_ta_output_len:]
         self.output_names = self.ta_names[self.num_rnn_outputs:]
 

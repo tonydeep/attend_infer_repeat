@@ -55,6 +55,5 @@ class APDRonMNIST(APDRModel, MNISTPriorMixin):
             transform_estimator=partial(StochasticTransformParam, transform_estimator_hidden,
                                       scale_bias=self.transform_var_bias, min_glimpse_size=self.min_glimpse_size),
             steps_predictor=partial(StepsPredictor, steps_pred_hidden, self.step_bias),
-            output_std=.3,
             **kwargs
         )
