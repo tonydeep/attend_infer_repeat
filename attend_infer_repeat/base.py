@@ -1,4 +1,5 @@
 import functools
+import math
 
 import tensorflow as tf
 
@@ -87,10 +88,10 @@ class BaseAPDRModel(object):
         """Build the model. See __init__ for argument description"""
 
         if self.learnable_output_std:
-            sqrt = self.output_std ** .5
+            sqrt = math.sqrt(self.output_std)
             self.output_std_sqrt = tf.get_variable('output_std_sqrt', shape=[], dtype=tf.float32,
                                                     initializer=tf.constant_initializer(sqrt))
-            self.output_std = tf.pow(self.output_std_variable, 2.)
+            self.output_std = tf.pow(self.output_std_sqrt, 2.)
 
         self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
         self._build_model(*cell_args, **cell_kwargs)

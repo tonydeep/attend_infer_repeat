@@ -38,7 +38,7 @@ flags.DEFINE_integer('anneal_iter', 0, '')
 
 flags.DEFINE_boolean('relation_embed', False, '')
 
-flags.DEFINE_float('output_std', .3)
+flags.DEFINE_float('output_std', .3, '')
 flags.DEFINE_boolean('learnable_output_std', False, '')
 
 

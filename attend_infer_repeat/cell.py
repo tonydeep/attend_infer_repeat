@@ -219,7 +219,9 @@ class DiscoveryCell(BaseAPDRCell):
 
     def _compute_where(self, inpt, hidden_output):
         where_param = self._transform_estimator(hidden_output)
-        where_distrib = NormalWithSoftplusScale(*where_param,
+        loc, scale = where_param
+        loc *= .1
+        where_distrib = NormalWithSoftplusScale(scale, loc,
                                                 validate_args=self._debug, allow_nan_stats=not self._debug)
         return where_distrib.sample(), where_distrib.loc, where_distrib.scale
 

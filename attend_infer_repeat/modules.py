@@ -177,10 +177,11 @@ class BaselineMLP(snt.AbstractModule):
 
 class AIRDecoder(snt.AbstractModule):
 
-    def __init__(self, img_size, glimpse_size, glimpse_decoder, batch_dims=2):
+    def __init__(self, img_size, glimpse_size, glimpse_decoder, batch_dims=2, clip=False):
         super(AIRDecoder, self).__init__()
         self._inverse_transformer = SpatialTransformer(img_size, glimpse_size, inverse=True)
         self._batch_dims = batch_dims
+        self._clip = clip
 
         with self._enter_variable_scope():
             self._glimpse_decoder = glimpse_decoder(glimpse_size)
@@ -191,4 +192,8 @@ class AIRDecoder(snt.AbstractModule):
         inversed = batch(self._inverse_transformer)(glimpse, logits=where)
         presence = presence[..., tf.newaxis, tf.newaxis]
         canvas = tf.reduce_sum(presence * inversed, axis=-4)[..., 0]
+
+        if self._clip:
+            canvas = tf.clip_by_value(canvas, 0., 1.)
+
         return canvas, glimpse

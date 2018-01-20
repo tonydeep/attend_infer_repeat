@@ -16,10 +16,8 @@ from prior import PoissonBinomialDistribution, NumStepsDistribution
 
 
 class AIRBase(snt.AbstractModule):
-    def __init__(self, num_step_distribution_class, use_logit, n_steps, batch_size, cell, anneal_weight=1.):
+    def __init__(self, n_steps, batch_size, cell, anneal_weight=1.):
         super(AIRBase, self).__init__()
-        self._num_step_distribution_class = num_step_distribution_class
-        self._use_logit = use_logit
         self._n_steps = n_steps
         self._batch_size = batch_size
         self._cell = cell
@@ -45,15 +43,11 @@ class AIRBase(snt.AbstractModule):
         what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit \
             = hidden_outputs
 
-        if self._use_logit:
-            num_steps_posterior = self._num_step_distribution_class(logits=presence_logit[..., 0])
-        else:
-            num_steps_posterior = self._num_step_distribution_class(presence_prob[..., 0])
-
+        steps_posterior = self._make_step_posterior(presence_prob, presence_logit)
         where_posterior = Normal(where_loc, where_scale)
         what_posterior = Normal(what_loc, what_scale)
 
-        return what_posterior, where_posterior, num_steps_posterior
+        return what_posterior, where_posterior, steps_posterior
     
     def kl_by_sampling(self, q, p, samples):
         return kl_by_sampling(q, p, samples, p_weight=self._anneal_weight)
@@ -61,8 +55,7 @@ class AIRBase(snt.AbstractModule):
 
 class AttendDiscoverRepeat(AIRBase):
     def __init__(self, n_steps, batch_size, cell, step_success_prob, anneal_weight=1., discover_only_t0=False):
-        super(AttendDiscoverRepeat, self).__init__(NumStepsDistribution, False, n_steps, batch_size, cell,
-                                                   anneal_weight)
+        super(AttendDiscoverRepeat, self).__init__(n_steps, batch_size, cell, anneal_weight)
 
         self._init_disc_step_success_prob = step_success_prob
         self._what_prior = Normal(0., 1.)
@@ -144,6 +137,9 @@ class AttendDiscoverRepeat(AIRBase):
 
         return self._what_prior, self._where_prior, num_steps_prior
 
+    def _make_step_posterior(self, presence_prob, presence_logit):
+        return NumStepsDistribution(presence_prob[..., 0])
+
 
 class AttendPropagateRepeat(AIRBase):
     _num_step_distribution_class = PoissonBinomialDistribution
@@ -151,7 +147,7 @@ class AttendPropagateRepeat(AIRBase):
     def __init__(self, n_steps, batch_size, cell, prior_cell, prop_logit_bias=3.,
                  constant_prior=False, infer_what=True, anneal_weight=1.):
 
-        super(AttendPropagateRepeat, self).__init__(Bernoulli, True, n_steps, batch_size, cell, anneal_weight)
+        super(AttendPropagateRepeat, self).__init__(n_steps, batch_size, cell, anneal_weight)
         self._prior_cell = prior_cell
         self._prior_prop_logit_bias = prop_logit_bias
         self._constant_prior = constant_prior
@@ -298,6 +294,10 @@ class AttendPropagateRepeat(AIRBase):
         prop_prior = Bernoulli(logits=prop_prob_logit[..., 0])
 
         return what_prior, where_prior, prop_prior
+
+    def _make_step_posterior(self, presence_prob, presence_logit):
+        return Bernoulli(logits=presence_logit[..., 0])
+
 
 
 class APDR(snt.AbstractModule):
