@@ -272,24 +272,24 @@ class AttendPropagateRepeat(AIRBase):
 
         # KLs
         kl_what = self.kl_by_sampling(what_posterior, what_prior, delta_what)
-        kl_what = tf.reduce_sum(kl_what, -1) * presence_tm1
+        kl_what = tf.reduce_sum(kl_what, -1) * presence_tm1 * presence
 
         if not self._infer_what:
             kl_what *= 0.
 
         kl_where = self.kl_by_sampling(where_posterior, where_prior, delta_where)
-        kl_where = tf.reduce_sum(kl_where, -1) * presence_tm1
+        kl_where = tf.reduce_sum(kl_where, -1) * presence_tm1 * presence
 
-        kl_num_step = self.kl_by_sampling(prop_posterior, prop_prior, presence) * presence_tm1
-        kl_num_step = tf.reduce_sum(kl_num_step, -1)
+        kl_steps = self.kl_by_sampling(prop_posterior, prop_prior, presence) * presence_tm1
+        kl_steps = tf.reduce_sum(kl_steps, -1)
 
-        kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_num_step
+        kl = tf.reduce_sum(kl_what + kl_where, -1) + kl_steps
 
         prop_prob = prop_posterior.probs * presence_tm1
         log_prop_prob = prop_posterior.log_prob(presence) * presence_tm1
         log_prop_prob = tf.reduce_sum(log_prop_prob, -1)
 
-        return kl, kl_where, kl_what, kl_num_step, prop_prob, log_prop_prob
+        return kl, kl_where, kl_what, kl_steps, prop_prob, log_prop_prob
 
     def _make_priors(self, (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)):
         what_prior = Normal(prior_what_loc, prior_what_scale)
