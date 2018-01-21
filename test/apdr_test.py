@@ -136,7 +136,7 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         cls.temporal_conditioning, _ = cls.temporal_cell(cls.temporal_state[0], cls.temporal_state)
 
         model = AttendPropagateRepeat(cls.n_steps, cls.batch_size, air_cell, cls.prior_cell,
-                                      infer_what=False,
+                                      # infer_what=False,
         )
 
         output = model(cls.img, cls.z_tm1, cls.temporal_conditioning, cls.prior_rnn_state)
@@ -170,13 +170,17 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         print 'kl what', values.kl_what.sum(-1).mean()
         print 'kl where', values.kl_where.sum(-1).mean()
         print 'kl prop', values.kl_num_step.mean()
-
+        print
         print 'where_loc_mean', values.where_loc.mean()
         print 'where_scale', values.where_scale.mean()
         print 'prior_where_loc', values.prior_stats[0].mean()
         print 'prior_where_scale', values.prior_stats[1].mean()
-
-
+        print
+        print 'what_loc_mean', values.what_loc.mean()
+        print 'what_scale', values.what_scale.mean()
+        print 'prior_what_loc', values.prior_stats[2].mean()
+        print 'prior_what_scale', values.prior_stats[3].mean()
+        print
 
         # KL should be the sum of three KL terms
         assert_array_almost_equal(values.kl, values.kl_what.sum(-1) + values.kl_where.sum(-1) + values.kl_num_step, 4)

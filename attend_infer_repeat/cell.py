@@ -13,6 +13,8 @@ class BaseAPDRCell(snt.RNNCore):
     _n_transform_param = 4
     _init_presence_value = 1.  # at the beginning we assume all objects were present
     _output_names = 'what what_loc what_scale where where_loc where_scale presence_prob presence presence_logit'.split()
+    _what_loc_mult = 1.
+    _what_scale_bias = 0.
 
     _latent_name_to_idx = dict(
         what=0,
@@ -59,7 +61,9 @@ class BaseAPDRCell(snt.RNNCore):
             self._input_encoder = input_encoder()
             self._glimpse_encoder = glimpse_encoder()
 
-            self._what_distrib = ParametrisedGaussian(n_what, scale_offset=0.5,
+            self._what_distrib = ParametrisedGaussian(n_what,
+                                                      loc_mult=self._what_loc_mult,
+                                                      scale_offset=self._what_scale_bias,
                                                       validate_args=self._debug, allow_nan_stats=not self._debug)
             self._steps_predictor = steps_predictor()
 
@@ -207,6 +211,7 @@ class BaseAPDRCell(snt.RNNCore):
 
 
 class DiscoveryCell(BaseAPDRCell):
+    _what_scale_bias = 0.5
 
     def _parse_inpt(self, inpt, presence):
         inpt, is_allowed = inpt
@@ -239,6 +244,8 @@ class DiscoveryCell(BaseAPDRCell):
 
 class PropagationCell(BaseAPDRCell):
     _init_presence_value = 0.  # at the beginning we assume no objects
+    _what_loc_mult = .1
+    _what_scale_bias = -3.
 
     def __init__(self, img_size, crop_size, n_what,
                  transition, input_encoder, glimpse_encoder, transform_estimator, steps_predictor,
@@ -263,8 +270,6 @@ class PropagationCell(BaseAPDRCell):
 
         inpt = tf.concat((code, what_tm1), -1)
         what_params = self._what_transform(inpt)
-        what_params *= self._latent_scale
-
         what_distrib = self._what_distrib(what_params)
         return what_distrib.sample(), what_distrib.loc, what_distrib.scale
 
@@ -282,7 +287,6 @@ class PropagationCell(BaseAPDRCell):
 
     def _compute_presence(self, inpt, presence, hidden_output):
         what_tm1, where_tm1, presence_tm1, presence_logit_tm1 = inpt
-
 
         inpt = tf.concat((what_tm1, where_tm1, hidden_output), -1)
         presence_logit = self._steps_predictor(inpt) #+ presence_logit_tm1

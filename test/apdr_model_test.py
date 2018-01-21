@@ -25,8 +25,8 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     # propagate_disc_what = True
     # anneal_iter = 2000
     # anneal_temp = 2
-    internal_decode = True
-    discover_only_t0 = True
+    # internal_decode = True
+    # discover_only_t0 = True
 
 
 def make_modules():
@@ -171,7 +171,11 @@ class APDRModelTest(unittest.TestCase):
                 #     .format(i, t, outputs.obj_id[t, i].squeeze(), rnn_outputs.presence[t, i].squeeze(),
                 #             outputs.prop_pres[t, i].squeeze(), outputs.disc_pres[t, i].squeeze())
 
-                print 't', t, 'num_disc', len(disc_ids), disc_ids
+                dids = map(int, disc_ids)
+                pids = map(int, prop_ids)
+                # print 't', t, 'num_disc', len(disc_ids), disc_ids
+                print 't: {}, num_disc: {}, disc: {}, num_prop: {}, prop: {}'.format(t, len(dids), dids, len(pids), pids)
+            print
 
             self.assertGreater(len(unique_ids), 1.)  # at least one object was discovered
             if -1 in unique_ids:

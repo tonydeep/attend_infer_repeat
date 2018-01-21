@@ -248,9 +248,12 @@ class AttendPropagateRepeat(AIRBase):
 
         # shift and scale in accordane with the prop cell
         prior_where_loc *= self._cell._latent_scale
+        prior_what_loc *= self._cell._what_loc_mult
 
         prior_where_scale, prior_what_scale = tf.split(scales, [4, self.n_what], -1)
         prior_where_scale += self._cell._transform_estimator._scale_bias
+        prior_what_scale += self._cell._what_scale_bias
+
         prior_where_scale, prior_what_scale = (tf.nn.softplus(i) for i in (prior_where_scale, prior_what_scale))
 
         prior_stats = (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)
@@ -297,7 +300,6 @@ class AttendPropagateRepeat(AIRBase):
 
     def _make_step_posterior(self, presence_prob, presence_logit):
         return Bernoulli(logits=presence_logit[..., 0])
-
 
 
 class APDR(snt.AbstractModule):

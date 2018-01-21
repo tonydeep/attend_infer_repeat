@@ -19,42 +19,17 @@ def selu(x):
 
 default_activation = tf.nn.elu
 
-default_init = {
-    'w': create_linear_initializer,
-    'b': tf.zeros_initializer()
-}
 
-
-def activation_based_init(nonlinearity):
-    """Returns initialiaation based on a nonlinearlity"""
-
-    init = tf.uniform_unit_scaling_initializer()
-    if nonlinearity == tf.nn.relu:
-        init = tf.contrib.layers.xavier_initializer()
-    elif nonlinearity == tf.nn.elu:
-        init = tf.contrib.layers.variance_scaling_initializer()
-    elif nonlinearity == selu:
-        init = tf.contrib.layers.variance_scaling_initializer(factor=1.0, mode='FAN_IN')
-
-    return init
-
-
-class Affine(snt.Linear):
+class Nonlinear(snt.Linear):
     """Layer implementing an affine non-linear transformation"""
 
-    def __init__(self, n_output, transfer=default_activation, initializers=None, transfer_based_init=False):
+    def __init__(self, n_output, transfer=default_activation, initializers=None):
 
-        if initializers is None:
-            initializers = default_init
-
-        if transfer_based_init and 'w' not in initializers:
-            initializers['w'] = activation_based_init(transfer)
-
-        super(Affine, self).__init__(n_output, initializers)
+        super(Nonlinear, self).__init__(output_size=n_output, initializers=initializers)
         self._transfer = transfer
 
     def _build(self, inpt):
-        output = super(Affine, self)._build(inpt)
+        output = super(Nonlinear, self)._build(inpt)
         if self._transfer is not None:
             output = self._transfer(output)
         return output
@@ -64,7 +39,7 @@ class MLP(snt.AbstractModule):
     """Implements a multi-layer perceptron"""
 
     def __init__(self, n_hiddens, hidden_transfer=default_activation, n_out=None, transfer=None,
-                 initializers=default_init, name=None):
+                 initializers=None, output_initializers=None, name=None):
         """Initialises the MLP
 
         :param n_hiddens: int or an interable of ints, number of hidden units in layers
@@ -85,6 +60,10 @@ class MLP(snt.AbstractModule):
         self._transfer = transfer
         self._initializers = initializers
 
+        if output_initializers is None:
+            output_initializers = initializers
+        self._output_initializers = output_initializers
+
     @property
     def output_size(self):
         if self._n_out is not None:
@@ -94,10 +73,10 @@ class MLP(snt.AbstractModule):
     def _build(self, inpt):
             layers = []
             for n_hidden, hidden_transfer in zip(self._n_hiddens, self._hidden_transfers):
-                layers.append(Affine(n_hidden, hidden_transfer, self._initializers))
+                layers.append(Nonlinear(n_hidden, hidden_transfer, self._initializers))
 
             if self._n_out is not None:
-                layers.append(Affine(self._n_out, self._transfer, self._initializers))
+                layers.append(Nonlinear(self._n_out, self._transfer, self._output_initializers))
 
             module = snt.Sequential(layers)
             return module(inpt)
