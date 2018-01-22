@@ -74,7 +74,7 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
 
     def test_shapes(self):
         num_hidden_outputs = 9
-        num_other_outputs = 8
+        num_other_outputs = 9
 
         self.assertEqual(len(self.output.hidden_outputs), num_hidden_outputs)
         self.assertEqual(len(self.output), num_other_outputs + len(self.output.hidden_outputs))
@@ -93,7 +93,20 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
         values, num_present_objects = self.sess.run([self.output, self.num_present_objects], {self.img: random_img})
         max_allowed_objects = self.n_steps - num_present_objects
 
+        # num steps should be <= max_steps - num_present_objects
+        assert_array_equal(values.max_disc_steps, max_allowed_objects)
         assert_array_less(values.num_steps, max_allowed_objects + 1)
+
+        # check for allowed values
+        assert_array_equal(values.num_steps, np.round(values.num_steps))
+        assert_array_less(values.num_steps_prob, 1.01)
+        assert_array_less(-.01, values.num_steps_prob)
+
+        for i, allowed_n_steps in enumerate(values.max_disc_steps):
+            idx = int(min(allowed_n_steps, self.n_steps))
+            self.assertNotEqual(values.num_steps_prob[i, idx], 0.)
+            if idx < self.n_steps:
+                self.assertEqual(values.num_steps_prob[i, idx + 1], 0.)
 
         for k, v in values.iteritems():
             self.assertFalse(flatten_check(v, np.isnan), 'NaNs in {}'.format(k))
@@ -105,7 +118,7 @@ class DiscoverTest(ModuleTest, unittest.TestCase):
         self.assertGreaterEqual(values.kl_where.mean(), 0.)
         self.assertGreaterEqual(values.kl_num_step.mean(), 0.)
 
-        #       KL what & where should be equal to zero for objects that are not there
+        # KL what & where should be equal to zero for objects that are not there
         presence = values.presence[..., 0]
         assert_array_equal(values.kl_what, values.kl_what * presence)
         assert_array_equal(values.kl_where, values.kl_where * presence)
@@ -160,6 +173,11 @@ class PropagateTest(ModuleTest, unittest.TestCase):
         random_img = np.random.uniform(size=self.img.shape.as_list())
         values, pres_tm1 = self.sess.run([self.output, self.pres_tm1], {self.img: random_img})
         pres_tm1 = pres_tm1[..., 0]
+
+        # check for allowed values
+        assert_array_equal(values.num_steps, np.round(values.num_steps))
+        assert_array_less(values.prop_prob, 1.01)
+        assert_array_less(-.01, values.prop_prob)
 
         for k, v in values.iteritems():
             self.assertFalse(flatten_check(v, np.isnan), 'NaNs in {}'.format(k))
@@ -372,6 +390,10 @@ class APDRTest(unittest.TestCase):
         self.assertGreaterEqual(values.kl_what.mean(), 0.)
         self.assertGreaterEqual(values.kl_where.mean(), 0.)
         self.assertGreaterEqual(values.kl_num_step.mean(), 0.)
+
+        # check for allowed values
+        assert_array_equal(values.num_steps, np.round(values.num_steps))
+        assert_array_equal(values.num_steps, values.prop.num_steps + values.disc.num_steps)
 
     def test_all_zero_presence(self):
         """No objects should be propagated; all ids should be introduced by discovery and different than previous ids"""

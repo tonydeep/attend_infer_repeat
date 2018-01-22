@@ -63,7 +63,9 @@ class AttendDiscoverRepeat(AIRBase):
         self._discover_only_t0 = discover_only_t0
 
     def _build(self, img, n_present_obj, conditioning=None, time_step=0):
-        hidden_outputs, num_steps = self._discover(img, n_present_obj, conditioning, time_step)
+        max_disc_steps = self._n_steps - n_present_obj
+
+        hidden_outputs, num_steps = self._discover(img, max_disc_steps, conditioning, time_step)
         kl, kl_where, kl_what, kl_num_step, num_steps_prob, log_num_steps_prob\
             = self._estimate_kl(hidden_outputs, num_steps, time_step)
 
@@ -75,14 +77,15 @@ class AttendDiscoverRepeat(AIRBase):
             kl=kl,
             kl_where=kl_where,
             kl_what=kl_what,
-            kl_num_step=kl_num_step
+            kl_num_step=kl_num_step,
+            max_disc_steps=max_disc_steps
         )
         outputs.update(BaseAPDRCell.outputs_by_name(hidden_outputs))
 
         return outputs
 
-    def _discover(self, img, n_present_obj, conditioning, time_step):
-        max_disc_steps = self._n_steps - n_present_obj
+    def _discover(self, img, max_disc_steps, conditioning, time_step):
+
         if self._discover_only_t0:
             first = tf.cast(tf.equal(time_step, 0), max_disc_steps.dtype)
             max_disc_steps *= first
@@ -98,7 +101,7 @@ class AttendDiscoverRepeat(AIRBase):
         presence = BaseAPDRCell.extract_latents(hidden_outputs, key='pres')
         num_steps = tf.reduce_sum(presence[..., 0], -1)
 
-        return hidden_outputs, num_steps
+        return hidden_outputs, num_steps,
 
     def _estimate_kl(self, hidden_outputs, num_steps, time_step):
         what, what_loc, what_scale, where, where_loc, where_scale, presence_prob, presence, presence_logit \

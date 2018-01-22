@@ -97,7 +97,7 @@ class BaseAPDRCell(snt.RNNCore):
 
     @staticmethod
     def outputs_by_name(hidden_outputs):
-        return {n: o for n, o in zip(DiscoveryCell._output_names, hidden_outputs)}
+        return {n: o for n, o in zip(BaseAPDRCell._output_names, hidden_outputs)}
 
     @staticmethod
     def extract_latents(hidden_outputs, key=None, skip=None):
@@ -215,7 +215,7 @@ class DiscoveryCell(BaseAPDRCell):
 
     def _parse_inpt(self, inpt, presence):
         inpt, is_allowed = inpt
-        return inpt, is_allowed * presence
+        return inpt, is_allowed
 
     def _compute_what(self, inpt, img, where_code):
         what_params = self._extract_and_encode_glimpse(img, where_code)
@@ -256,7 +256,6 @@ class PropagationCell(BaseAPDRCell):
                                               decoder=decoder, debug=debug)
 
         with self._enter_variable_scope():
-            self._what_transform = MLP([self._n_hidden] * 2)
             self._latent_scale = latent_scale
 
     def _parse_inpt(self, inpt, _):
@@ -266,10 +265,8 @@ class PropagationCell(BaseAPDRCell):
 
     def _compute_what(self, inpt, img, where_code):
         what_tm1 = inpt[0]
-        code = self._extract_and_encode_glimpse(img, where_code)
-
-        inpt = tf.concat((code, what_tm1), -1)
-        what_params = self._what_transform(inpt)
+        what_params = self._extract_and_encode_glimpse(img, where_code)
+        # what_params = tf.concat((what_params, what_tm1), -1)
         what_distrib = self._what_distrib(what_params)
         return what_distrib.sample(), what_distrib.loc, what_distrib.scale
 
