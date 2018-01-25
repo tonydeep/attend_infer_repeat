@@ -26,6 +26,7 @@ class BaseAPDRModel(object):
     prior_rnn_class = None
     output_std = 1.
     learnable_output_std = False
+    scan = False
 
     def __init__(self, obs, max_steps, glimpse_size,
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
@@ -93,7 +94,7 @@ class BaseAPDRModel(object):
                                                     initializer=tf.constant_initializer(sqrt))
             self.output_std = tf.pow(self.output_std_sqrt, 2.)
 
-        self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2)
+        self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2, scan=self.scan)
         self._build_model(*cell_args, **cell_kwargs)
 
         res = self._time_loop()

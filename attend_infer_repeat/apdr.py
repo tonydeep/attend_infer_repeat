@@ -198,11 +198,13 @@ class AttendPropagateRepeat(AIRBase):
 
     def _temporal_to_step_hidden_state(self, temporal_hidden_state):
         """Linear projection of the temporal hidden state to the step-wise hidden state"""
-        flat_hidden_state = tf.concat(nest.flatten(temporal_hidden_state), -1)
-        state_size = self._cell.state_size[-1]
-        flat_state_size = sum([int(s) for s in state_size])
-        state = snt.Linear(flat_state_size)(flat_hidden_state)
-        state = tf.split(state, state_size, -1)
+        with tf.variable_scope('temporal_to_step_hidden_state'):
+            flat_hidden_state = tf.concat(nest.flatten(temporal_hidden_state), -1)
+            state_size = self._cell.state_size[-1]
+            flat_state_size = sum([int(s) for s in state_size])
+            state = snt.Linear(flat_state_size)(flat_hidden_state)
+            state = tf.split(state, state_size, -1)
+
         if len(state) == 1:
             state = state[0]
 
@@ -210,8 +212,9 @@ class AttendPropagateRepeat(AIRBase):
 
     def _propagate(self, img, z_tm1, temporal_hidden_state):
         # # 1) propagate previous
-        step_initial_state = self._temporal_to_step_hidden_state(temporal_hidden_state)
-        initial_state = self._cell.initial_state(img, hidden_state=step_initial_state)
+        with tf.variable_scope('temporal_hidden_state'):
+            step_initial_state = self._temporal_to_step_hidden_state(temporal_hidden_state)
+            initial_state = self._cell.initial_state(img, hidden_state=step_initial_state)
 
         unstacked_z_tm1 = zip(*[tf.unstack(z, axis=-2) for z in z_tm1])
         hidden_outputs, inner_hidden_state = self._unroll_timestep(unstacked_z_tm1, initial_state)
@@ -231,33 +234,34 @@ class AttendPropagateRepeat(AIRBase):
     def _update_prior(self, z_tm1, prior_rnn_hidden_state):
         what_tm1, where_tm1, presence_tm1 = z_tm1[:3]
 
-        # continuous
-        prior_rnn_inpt = tf.concat((what_tm1, where_tm1), -1)
-        rnn = snt.BatchApply(self._prior_cell)
+        with tf.variable_scope('update_prior'):
+            # continuous
+            prior_rnn_inpt = tf.concat((what_tm1, where_tm1), -1)
+            rnn = snt.BatchApply(self._prior_cell)
 
-        outputs, prior_rnn_hidden_state = rnn(prior_rnn_inpt, prior_rnn_hidden_state)
-        n_outputs = 2 * (4 + self.n_what) + self._n_steps
-        stats = snt.BatchApply(snt.Linear(n_outputs))(outputs)
+            outputs, prior_rnn_hidden_state = rnn(prior_rnn_inpt, prior_rnn_hidden_state)
+            n_outputs = 2 * (4 + self.n_what) + self._n_steps
+            stats = snt.BatchApply(snt.Linear(n_outputs))(outputs)
 
-        prop_prob_logit, stats = tf.split(stats, [self._n_steps, n_outputs - self._n_steps], -1)
-        prop_prob_logit += self._prior_prop_logit_bias
+            prop_prob_logit, stats = tf.split(stats, [self._n_steps, n_outputs - self._n_steps], -1)
+            prop_prob_logit += self._prior_prop_logit_bias
 
-        if self._constant_prior:
-            prop_prob_logit = tf.ones_like(prop_prob_logit) * self._constant_prior
+            if self._constant_prior:
+                prop_prob_logit = tf.ones_like(prop_prob_logit) * self._constant_prior
 
-        locs, scales = tf.split(stats, 2, -1)
+            locs, scales = tf.split(stats, 2, -1)
 
-        prior_where_loc, prior_what_loc = tf.split(locs, [4, self.n_what], -1)
+            prior_where_loc, prior_what_loc = tf.split(locs, [4, self.n_what], -1)
 
-        # shift and scale in accordane with the prop cell
-        prior_where_loc *= self._cell._latent_scale
-        prior_what_loc *= self._cell._what_loc_mult
+            # shift and scale in accordane with the prop cell
+            prior_where_loc *= self._cell._latent_scale
+            prior_what_loc *= self._cell._what_loc_mult
 
-        prior_where_scale, prior_what_scale = tf.split(scales, [4, self.n_what], -1)
-        prior_where_scale += self._cell._transform_estimator._scale_bias
-        prior_what_scale += self._cell._what_scale_bias
+            prior_where_scale, prior_what_scale = tf.split(scales, [4, self.n_what], -1)
+            prior_where_scale += self._cell._transform_estimator._scale_bias
+            prior_what_scale += self._cell._what_scale_bias
 
-        prior_where_scale, prior_what_scale = (tf.nn.softplus(i) for i in (prior_where_scale, prior_what_scale))
+            prior_where_scale, prior_what_scale = (tf.nn.softplus(i) for i in (prior_where_scale, prior_what_scale))
 
         prior_stats = (prior_where_loc, prior_where_scale, prior_what_loc, prior_what_scale, prop_prob_logit)
         return prior_stats, prior_rnn_hidden_state

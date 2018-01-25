@@ -174,14 +174,15 @@ class APDRModel(BaseAPDRModel):
 
         # ## Decode
         canvas, glimpse = self.decoder(what, where, presence)
-        canvas *= self.output_multiplier
+        if not self.scan:
+            canvas *= self.output_multiplier
 
         likelihood, elbo = self._compute_elbo(img, canvas, apdr_outputs.kl)
 
         ### importance_weights
         iw_elbo, importance_weights = estimate_importance_weighted_elbo(self.batch_size, self.iw_samples, elbo)
         cumulative_imp_weights *= importance_weights
-        cumulative_imp_weights /= tf.reduce_sum(cumulative_imp_weights, -1, keep_dims=True) + 1e-8
+        cumulative_imp_weights /= tf.reduce_sum(cumulative_imp_weights, -1, keep_dims=True)
 
         flat_iw = tf.reshape(importance_weights, (self.batch_size * self.iw_samples,))
 

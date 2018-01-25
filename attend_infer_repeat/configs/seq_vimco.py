@@ -40,6 +40,7 @@ flags.DEFINE_boolean('relation_embed', False, '')
 
 flags.DEFINE_float('output_std', .3, '')
 flags.DEFINE_boolean('learnable_output_std', False, '')
+flags.DEFINE_boolean('scan', False, '')
 
 
 def load(img, num):
@@ -57,6 +58,7 @@ def load(img, num):
     class APDRwithVIMCO(APDRonMNIST):
         output_std = f.output_std
         learnable_output_std = f.learnable_output_std
+        scan = f.scan
 
         importance_resample = f.importance_resample
         init_step_success_prob = f.init_step_success_prob

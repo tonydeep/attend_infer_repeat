@@ -6,7 +6,7 @@ from attend_infer_repeat.cell import DiscoveryCell, PropagationCell
 from attend_infer_repeat.modules import *
 from attend_infer_repeat.apdr import APDR
 from attend_infer_repeat.apdr import AttendDiscoverRepeat, AttendPropagateRepeat
-from testing_tools import flatten_check, print_trainable_variables
+from testing_tools import flatten_check, trainable_model_vars, print_trainable_variables
 
 
 def make_modules(step_bias=0.):
@@ -39,14 +39,20 @@ class ModuleTest(object):
         cls.modules = make_modules()
 
         glimpse_decoder = lambda size: Decoder(n_hidden=5, output_size=size)
-        cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder)
+        cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder, scan=True)
 
         cls.air_cell, cls.model, cls.output = cls._make_model()
+
+        cls.model_vars = trainable_model_vars(vars_before)
+        grad_proxy = sum([tf.reduce_mean(cls.output[i]) for i in 'what where presence_prob'.split()])
+        cls.gradients = tf.gradients(grad_proxy, cls.model_vars)
 
         cls.sess = tf.Session()
         cls.sess.run(tf.global_variables_initializer())
 
-        print_trainable_variables(cls.__name__, vars_before)
+        for v, g in zip(cls.model_vars, cls.gradients):
+            print v.name, v.shape.as_list(), 'grad exists: {}'.format(g is not None)
+
         print cls.__name__
 
     def test_fields(self):
@@ -272,7 +278,7 @@ class APDRTest(unittest.TestCase):
         cls.temporal_conditioning, _ = cls.temporal_cell(cls.temporal_state[0], cls.temporal_state)
 
         glimpse_decoder = lambda size: Decoder(n_hidden=5, output_size=size)
-        cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder)
+        cls.decoder = AIRDecoder(cls.img_size, cls.crop_size, glimpse_decoder, scan=True)
 
         cls.apdr = APDR(cls.n_steps, cls.batch_size, cls.prop_model, cls.disc_model,
                         cls.temporal_cell, cls.decoder, relation_embedding=True)
@@ -284,6 +290,8 @@ class APDRTest(unittest.TestCase):
 
         cls.what_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, cls.n_latent), name='what_tm1')
         cls.where_tm1 = tf.random_normal((cls.batch_size, cls.n_steps, 4), name='where_tm1')
+
+        # cls.pres_tm1 = tf.ones((cls.batch_size, cls.n_steps, 1))
         cls.pres_tm1 = tf.to_float(
             tf.random_uniform((cls.batch_size, cls.n_steps, 1), 0, 2, tf.int32, name='pres_tm1'))
 
@@ -309,10 +317,16 @@ class APDRTest(unittest.TestCase):
         cls.output = cls.apdr(cls.img, cls.z_tm1, cls.temporal_state, cls.prop_prior_rnn_state,
                               cls.highest_used_id, cls.prev_ids)
 
+        cls.model_vars = trainable_model_vars(vars_before)
+        grad_proxy = sum([tf.reduce_mean(cls.output[i]) for i in 'what where presence_prob kl'.split()])
+        cls.gradients = tf.gradients(grad_proxy, cls.model_vars)
+
+        for v, g in zip(cls.model_vars, cls.gradients):
+            print v.name, v.shape.as_list(), 'grad exists: {}'.format(g is not None)
+
         cls.sess = tf.Session()
         cls.sess.run(tf.global_variables_initializer())
 
-        cls.model_vars = print_trainable_variables(cls.__name__, vars_before)
         cls.num_model_vars = len(cls.model_vars)
 
     @classmethod
