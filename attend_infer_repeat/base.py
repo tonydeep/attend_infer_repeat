@@ -159,19 +159,27 @@ class BaseAPDRModel(object):
 
     def _make_train_step(self, make_opt):
 
-        self.baseline = self._make_baseline(self.cumulative_elbo_per_sample)
+        # self.baseline = self._make_baseline(self.cumulative_elbo_per_sample)
+        self.baseline = self._make_baseline(self.elbo_per_sample)
 
         posterior_num_steps_log_prob = self.step_log_prob[..., 0]
-        posterior_num_steps_log_prob = tf.reduce_sum(posterior_num_steps_log_prob, 0)
+        # posterior_num_steps_log_prob = tf.reduce_sum(posterior_num_steps_log_prob, 0)
 
         if self.importance_resample:
             posterior_num_steps_log_prob = self.resample(posterior_num_steps_log_prob)
-            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.batch_size, 1))
+            # posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.batch_size, 1))
+            posterior_num_steps_log_prob = tf.reshape(posterior_num_steps_log_prob, (self.n_timesteps, self.batch_size, 1))
 
-            baseline = tf.reshape(self.baseline, (self.effective_batch_size,))
+            # baseline = tf.reshape(self.baseline, (self.effective_batch_size,))
+            baseline = tf.reshape(self.baseline, (self.n_timesteps, self.effective_batch_size,))
             elbo_per_sample, baseline = self.resample(self.cumulative_elbo_per_sample, baseline)
             self.nelbo_per_sample = -tf.reshape(elbo_per_sample, (self.batch_size, 1))
-            self.baseline = tf.reshape(baseline, (self.batch_size, 1))
+            # self.baseline = tf.reshape(baseline, (self.batch_size, 1))
+            self.baseline = tf.reshape(baseline, (self.n_timesteps, self.batch_size, 1))
+
+            learning_signal = self.resample(self.elbo_per_sample)
+            learning_signal = tf.cumsum(learning_signal, reverse=True)
+            num_steps_learning_signal = tf.reshape(learning_signal, (self.n_timesteps, self.batch_size, 1))
 
             # this could be constant e.g. 1, but the expectation of this is zero anyway,
             #  so there's no point in adding that.
@@ -181,7 +189,7 @@ class BaseAPDRModel(object):
             r_imp_weight = self.cumulative_imp_weights
             self.nelbo_per_sample = -tf.reshape(self.cumulative_iw_elbo_per_sample, (self.batch_size, 1))
 
-        num_steps_learning_signal = self.nelbo_per_sample
+        # num_steps_learning_signal = self.nelbo_per_sample
         self.nelbo = tf.reduce_mean(self.nelbo_per_sample) / self.n_timesteps
 
         self.reinforce_loss = self._reinforce(num_steps_learning_signal - r_imp_weight, posterior_num_steps_log_prob)
@@ -197,16 +205,37 @@ class BaseAPDRModel(object):
 
         return train_step, gvs
 
+    # def _make_baseline(self, per_sample_elbo):
+    #     #####################
+    #
+    #     if self.iw_samples == 1:
+    #         return tf.zeros((self.batch_size, self.iw_samples), dtype=tf.float32)
+    #
+    #     # compute the baseline
+    #     #########################
+    #     # 3) precompute the sum of per-sample bounds
+    #     reshaped_per_sample_elbo = tf.reshape(per_sample_elbo, (self.batch_size, self.iw_samples))
+    #     summed_per_sample_elbo = tf.reduce_sum(reshaped_per_sample_elbo, -1, keep_dims=True)
+    #
+    #     # 4) compute the baseline
+    #     all_but_one_average = (summed_per_sample_elbo - reshaped_per_sample_elbo) / (self.iw_samples - 1.)
+    #
+    #     baseline, control = VIMCOEstimator._exped_baseline_and_control(reshaped_per_sample_elbo, all_but_one_average)
+    #     baseline = tf.log(baseline) - tf.log(float(self.iw_samples)) + control
+    #     return -baseline
+    #
     def _make_baseline(self, per_sample_elbo):
         #####################
 
         if self.iw_samples == 1:
-            return tf.zeros((self.batch_size, self.iw_samples), dtype=tf.float32)
+            return tf.zeros((self.n_timesteps, self.batch_size, self.iw_samples), dtype=tf.float32)
+
+        per_sample_elbo = tf.cumsum(per_sample_elbo, reverse=True)
 
         # compute the baseline
         #########################
         # 3) precompute the sum of per-sample bounds
-        reshaped_per_sample_elbo = tf.reshape(per_sample_elbo, (self.batch_size, self.iw_samples))
+        reshaped_per_sample_elbo = tf.reshape(per_sample_elbo, (self.n_timesteps, self.batch_size, self.iw_samples))
         summed_per_sample_elbo = tf.reduce_sum(reshaped_per_sample_elbo, -1, keep_dims=True)
 
         # 4) compute the baseline
@@ -231,9 +260,14 @@ class BaseAPDRModel(object):
         reinforce_loss_per_sample = tf.stop_gradient(self.num_steps_learning_signal) * posterior_num_steps_log_prob
 
         shape = reinforce_loss_per_sample.shape.as_list()
-        assert len(shape) == 2 and shape[0] == self.batch_size and shape[1] in (
+
+        # assert len(shape) == 2 and shape[0] == self.batch_size and shape[1] in (
+        #     1, self.iw_samples), 'shape is {}'.format(shape)
+
+        assert len(shape) == 3 and shape[0] == self.n_timesteps and shape[1] == self.batch_size and shape[2] in (
             1, self.iw_samples), 'shape is {}'.format(shape)
 
+        reinforce_loss_per_sample = tf.squeeze(reinforce_loss_per_sample, -1)
         reinforce_loss = tf.reduce_mean(tf.reduce_sum(reinforce_loss_per_sample, -1))
         tf.summary.scalar('reinforce_loss', reinforce_loss)
         return reinforce_loss
@@ -269,3 +303,5 @@ class BaseAPDRModel(object):
         value = tf.reduce_mean(resampled)
         setattr(self, name, value)
         tf.summary.scalar(name, value)
+
+

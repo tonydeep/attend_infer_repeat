@@ -49,7 +49,7 @@ class APDRModelTest(unittest.TestCase):
     crop_size = (2, 2)
     n_what = 13
     n_steps_per_image = 3
-    iw_samples = 2
+    iw_samples = 32
     n_timesteps = 3
 
     @classmethod
@@ -103,9 +103,22 @@ class APDRModelTest(unittest.TestCase):
 
         time_start = time.clock()
 
-        rnn_outputs, outputs, l = sess.run([self.rnn_outputs, self.outputs, [self.loss, self.kl, self.likelihood]], {self.imgs: xx})
+        loss_tensors = [self.loss, self.kl, self.likelihood]
+        tensors = [self.rnn_outputs, self.outputs, self.air.elbo_per_sample, self.air.baseline, self.air.num_steps_learning_signal, loss_tensors]
+        rnn_outputs, outputs, elbo, baseline, learning_signal, l = sess.run(tensors, {self.imgs: xx})
 
         self.register_time(time_start, time.clock(), 'Forward pass')
+
+        print 'learning signal'
+        elbo[1] += elbo[2]
+        elbo[0] += elbo[1]
+        for b in xrange(self.batch_size):
+            print b, 'l', learning_signal[:, b].squeeze()
+            print b, 'e', elbo[:, b].squeeze()
+            print b, 'b', baseline[:, b].squeeze()
+            print b, 'p', elbo[:, b].squeeze() + baseline[:, b].squeeze()
+            print b, 'm', elbo[:, b].squeeze() - baseline[:, b].squeeze()
+            print
 
 
         # Prop probability should be always zero at the first timestep
@@ -215,7 +228,8 @@ class APDRModelTest(unittest.TestCase):
 
     def test_learning_signal_shape(self):
         learning_signal_shape = self.air.num_steps_learning_signal.shape.as_list()
-        self.assertEqual(learning_signal_shape, [self.batch_size, 1])
+        # self.assertEqual(learning_signal_shape, [self.batch_size, 1])
+        self.assertEqual(learning_signal_shape, [self.n_timesteps, self.batch_size, 1])
 
     def test_num_vars(self):
         """This is to ensure test failure whenever number of variables increases: it forces me to think why it happened
