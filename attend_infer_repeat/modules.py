@@ -178,36 +178,29 @@ class BaselineMLP(snt.AbstractModule):
 
 class AIRDecoder(snt.AbstractModule):
 
-    def __init__(self, img_size, glimpse_size, glimpse_decoder, batch_dims=2, clip=False, scan=False):
+    def __init__(self, img_size, glimpse_size, glimpse_decoder, batch_dims=2, cnn=False):
         super(AIRDecoder, self).__init__()
         self._inverse_transformer = SpatialTransformer(img_size, glimpse_size, inverse=True)
         self._batch_dims = batch_dims
-        self._clip = clip
-        self._scan = scan
+        self._cnn = cnn
 
         with self._enter_variable_scope():
             self._glimpse_decoder = glimpse_decoder(glimpse_size)
+            if self._cnn:
+
+                conv1 = snt.Conv2D(32, (3, 3))
+                conv2 = snt.Conv2D(1, (3, 3))
+                self._cnn_model = snt.Sequential([conv1, tf.nn.elu, conv2, tf.nn.sigmoid])
 
     def _build(self, what, where, presence):
         batch = functools.partial(snt.BatchApply, n_dims=self._batch_dims)
         glimpse = batch(self._glimpse_decoder)(what)
-        if self._scan:
-            glimpse = tf.nn.sigmoid(glimpse)
 
         inversed = batch(self._inverse_transformer)(glimpse, logits=where)
         inversed *= presence[..., tf.newaxis, tf.newaxis]
+        canvas = tf.reduce_sum(inversed, axis=-4)
 
-        if self._scan:
-
-            unstacked = tf.unstack(inversed, axis=-4)
-            canvas = unstacked[0]
-            for u in unstacked[1:]:
-                canvas = canvas + (1. - canvas) * u
-
-        else:
-            canvas = tf.reduce_sum(inversed, axis=-4)
-
-            if self._clip:
-                canvas = tf.clip_by_value(canvas, 0., 1.)
+        if self._cnn:
+            canvas = self._cnn_model(canvas)
 
         return tf.squeeze(canvas, -1), glimpse

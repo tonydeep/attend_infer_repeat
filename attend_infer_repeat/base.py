@@ -10,12 +10,6 @@ from modules import AIRDecoder
 from ops import tile_input_for_iwae, gather_axis
 
 
-# TODO: implement FIVO & per-timestep VIMCO for FIVO
-# TODO 09.01.2018: right now we prevent transition to the following timestep directly inside the cell; we set all outputs to zero in that case.
-# The problem is that it leads to NaNs in KL/sampling/prob eval so we need to set it to some small eps. It'd be better to
-# not set it to any values but to set likelihood/kl/per-timestep elbos to zeros instead. It's harder to implement, though.
-# If the simple fix improves situation we can think about a more complicated but formally better solution.
-
 class BaseAPDRModel(object):
     """Generic AIR model
 
@@ -28,6 +22,7 @@ class BaseAPDRModel(object):
     learnable_output_std = False
     scan = False
     per_timestep_vimco = False
+    cnn_decoder = False
 
     def __init__(self, obs, max_steps, glimpse_size,
                  n_what, transition, input_encoder, glimpse_encoder, glimpse_decoder, transform_estimator,
@@ -95,7 +90,7 @@ class BaseAPDRModel(object):
                                                     initializer=tf.constant_initializer(sqrt))
             self.output_std = tf.pow(self.output_std_sqrt, 2.)
 
-        self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2, scan=self.scan)
+        self.decoder = AIRDecoder(self.img_size, self.glimpse_size, glimpse_decoder, batch_dims=2, cnn=self.cnn_decoder)
         self._build_model(*cell_args, **cell_kwargs)
 
         res = self._time_loop()

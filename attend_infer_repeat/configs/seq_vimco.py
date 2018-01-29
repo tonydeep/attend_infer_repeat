@@ -40,8 +40,8 @@ flags.DEFINE_boolean('relation_embed', False, '')
 
 flags.DEFINE_float('output_std', .3, '')
 flags.DEFINE_boolean('learnable_output_std', False, '')
-flags.DEFINE_boolean('scan', False, '')
 flags.DEFINE_boolean('per_timestep_vimco', False, '')
+flags.DEFINE_boolean('cnn_decoder', False, '')
 
 
 def load(img, num):
@@ -59,8 +59,8 @@ def load(img, num):
     class APDRwithVIMCO(APDRonMNIST):
         output_std = f.output_std
         learnable_output_std = f.learnable_output_std
-        scan = f.scan
         per_timestep_vimco = f.per_timestep_vimco
+        cnn_decoder = f.cnn_decoder
 
         importance_resample = f.importance_resample
         init_step_success_prob = f.init_step_success_prob

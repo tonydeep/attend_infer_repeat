@@ -174,7 +174,7 @@ class APDRModel(BaseAPDRModel):
 
         # ## Decode
         canvas, glimpse = self.decoder(what, where, presence)
-        if not self.scan:
+        if not self.cnn_decoder:
             canvas *= self.output_multiplier
 
         likelihood, elbo = self._compute_elbo(img, canvas, apdr_outputs.kl)

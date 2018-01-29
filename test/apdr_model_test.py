@@ -27,8 +27,8 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     # anneal_temp = 2
     # internal_decode = True
     # discover_only_t0 = True
-    scan = True
     per_timestep_vimco = True
+    cnn_decoder = True
 
 
 def make_modules():
@@ -235,8 +235,11 @@ class APDRModelTest(unittest.TestCase):
     def test_num_vars(self):
         """This is to ensure test failure whenever number of variables increases: it forces me to think why it happened
         as I need to change this number explicitly to make tests run agian."""
-        self.assertEqual(len(self.model_vars), 60)
+        n_vars = 60
+        if APDRModelMock.cnn_decoder:
+            n_vars += 4
 
+        self.assertEqual(len(self.model_vars), n_vars)
 
 
 # # Naive implt
