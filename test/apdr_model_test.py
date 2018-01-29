@@ -28,6 +28,7 @@ class APDRModelMock(APDRModel, MNISTPriorMixin):
     # internal_decode = True
     # discover_only_t0 = True
     scan = True
+    per_timestep_vimco = True
 
 
 def make_modules():
@@ -49,7 +50,7 @@ class APDRModelTest(unittest.TestCase):
     crop_size = (2, 2)
     n_what = 13
     n_steps_per_image = 3
-    iw_samples = 32
+    iw_samples = 5
     n_timesteps = 3
 
     @classmethod
@@ -104,8 +105,8 @@ class APDRModelTest(unittest.TestCase):
         time_start = time.clock()
 
         loss_tensors = [self.loss, self.kl, self.likelihood]
-        tensors = [self.rnn_outputs, self.outputs, self.air.elbo_per_sample, self.air.baseline, self.air.num_steps_learning_signal, loss_tensors]
-        rnn_outputs, outputs, elbo, baseline, learning_signal, l = sess.run(tensors, {self.imgs: xx})
+        tensors = [self.rnn_outputs, self.outputs, self.air.elbo_per_sample, self.air.reinforce_loss_per_sample, self.air.baseline, self.air.num_steps_learning_signal, loss_tensors]
+        rnn_outputs, outputs, elbo, reinforce, baseline, learning_signal, l = sess.run(tensors, {self.imgs: xx})
 
         self.register_time(time_start, time.clock(), 'Forward pass')
 
@@ -117,7 +118,7 @@ class APDRModelTest(unittest.TestCase):
             print b, 'e', elbo[:, b].squeeze()
             print b, 'b', baseline[:, b].squeeze()
             print b, 'p', elbo[:, b].squeeze() + baseline[:, b].squeeze()
-            print b, 'm', elbo[:, b].squeeze() - baseline[:, b].squeeze()
+            print b, 'r', reinforce[:, b].squeeze()
             print
 
 
@@ -228,8 +229,8 @@ class APDRModelTest(unittest.TestCase):
 
     def test_learning_signal_shape(self):
         learning_signal_shape = self.air.num_steps_learning_signal.shape.as_list()
-        # self.assertEqual(learning_signal_shape, [self.batch_size, 1])
-        self.assertEqual(learning_signal_shape, [self.n_timesteps, self.batch_size, 1])
+        excepted_nt = self.n_timesteps if APDRModelMock.per_timestep_vimco else 1
+        self.assertEqual(learning_signal_shape, [excepted_nt, self.batch_size, 1])
 
     def test_num_vars(self):
         """This is to ensure test failure whenever number of variables increases: it forces me to think why it happened
